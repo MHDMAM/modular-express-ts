@@ -89,8 +89,11 @@ All are disabled by default.
 
 - **MSSQL** (`@libs/Mssql`): connects on first import using the `db` config; tables' column types are loaded so query
   inputs are typed automatically.
-- **Kafka** (`@utils/kafka`): set `kafka.enabled` to `true`; `kafka.consumerEnabled` also starts a consumer on
-  `kafka.topicName`.
+- **Kafka** (`@libs/Kafka`, Confluent's official client): set `kafka.enabled` to `true`. Register topic handlers with
+  `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if handlers exist) and publish with
+  `await kafka.send(topic, { key, value })`. A handler that throws sends the message to `<topic>.dlq`
+  (`kafka.deadLetterSuffix`, empty to retry instead). Set `kafka.ssl` and `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`,
+  `KAFKA_SASL_PASSWORD` for managed Kafka; `KAFKA_BROKERS` takes a JSON array.
 - **Hazelcast** (`@utils/hazelcast`): set `hazelcast.enabled` to `true`; `hazelcast.client` is passed to the Hazelcast
   client as-is.
 

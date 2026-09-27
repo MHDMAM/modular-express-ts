@@ -1,77 +1,155 @@
+import { KafkaJS } from '@confluentinc/kafka-javascript';
+import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
-import { Consumer, Kafka, Producer } from 'kafkajs';
+import config from 'config';
 
-export default class KafkaManager {
-  private static instance: KafkaManager;
-  private kafka: Kafka;
-  private producer: Producer;
-  private consumer: Consumer;
+export interface KafkaConfig {
+  enabled: boolean;
+  clientId: string;
+  brokers: string[];
+  /** Consumer group; only used when at least one topic handler is registered. */
+  groupId: string;
+  /** Start from the earliest offset when the group has no committed offset yet. */
+  fromBeginning: boolean;
+  ssl: boolean;
+  /** Required by most managed Kafka services (Confluent Cloud, MSK, Aiven, ...). */
+  sasl: { mechanism: 'plain' | 'scram-sha-256' | 'scram-sha-512'; username: string; password: string } | null;
+  /**
+   * When a handler throws, the message is published to `<topic><deadLetterSuffix>` and consumption continues.
+   * Empty string disables it: the error is rethrown and the consumer retries the message.
+   */
+  deadLetterSuffix: string;
+}
 
-  private constructor() {}
+export interface IncomingMessage {
+  topic: string;
+  partition: number;
+  offset: string;
+  key: string | null;
+  value: string | null;
+  headers: Record<string, string>;
+}
 
-  public static getInstance(): KafkaManager {
-    if (!this.instance) {
-      this.instance = new KafkaManager();
-    }
-    return this.instance;
+export interface OutgoingMessage {
+  key?: string | null;
+  value: string | Buffer | null;
+  headers?: Record<string, string>;
+}
+
+export type MessageHandler = (message: IncomingMessage) => Promise<void>;
+
+function decodeHeaders(headers?: KafkaJS.IHeaders): Record<string, string> {
+  const decoded: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (value !== undefined) decoded[key] = Array.isArray(value) ? value.map(String).join(',') : value.toString();
+  }
+  return decoded;
+}
+
+/**
+ * Kafka producer and (optional) consumer, using Confluent's official client through its KafkaJS-compatible API.
+ *
+ * ```ts
+ * import kafka from '@libs/Kafka';
+ * kafka.subscribe('orders', async (message) => { ... }); // at module load, before startup
+ * await kafka.send('orders', { key: order.id, value: JSON.stringify(order) });
+ * ```
+ */
+export class KafkaConnector implements Connector {
+  readonly name = 'kafka';
+  private kafka?: KafkaJS.Kafka;
+  private producer?: KafkaJS.Producer;
+  private consumer?: KafkaJS.Consumer;
+  private readonly handlers = new Map<string, MessageHandler>();
+  private ready = false;
+
+  constructor(private readonly config: KafkaConfig) {}
+
+  get enabled(): boolean {
+    return this.config.enabled;
   }
 
-  public async initialize(config: {
-    clientId: string;
-    brokers: string[];
-    groupId?: string;
-    transactionalId?: string;
-  }): Promise<void> {
-    if (!config || !config.brokers?.length || !config.clientId) {
-      throw new Error('Invalid Kafka configuration: clientId and brokers are required');
-    }
+  /** Registers the handler for a topic. Must be called before startup; the consumer only runs if handlers exist. */
+  subscribe(topic: string, handler: MessageHandler): void {
+    if (this.kafka) throw new Error('Kafka: subscribe() must be called before the connector is initialised');
+    if (this.handlers.has(topic)) throw new Error(`Kafka: a handler for topic "${topic}" is already registered`);
+    this.handlers.set(topic, handler);
+  }
 
-    const groupId = config.groupId || 'default-group-id'; // Default groupId fallback
+  async init(): Promise<void> {
+    const { clientId, brokers, ssl, sasl, groupId, fromBeginning } = this.config;
+    this.kafka = new KafkaJS.Kafka({ kafkaJS: { clientId, brokers, ssl, ...(sasl && { sasl }) } });
 
-    this.kafka = new Kafka({ clientId: config.clientId, brokers: config.brokers });
-
-    this.producer = this.kafka.producer({ transactionalId: config.transactionalId || 'default-transactional-id' });
-    this.consumer = this.kafka.consumer({ groupId });
-
+    this.producer = this.kafka.producer();
     await this.producer.connect();
-    logger.info({ info: 'Producer connected to Kafka' });
 
-    await this.consumer.connect();
-    logger.info({ info: 'Consumer connected to Kafka with groupId', groupId });
+    if (this.handlers.size > 0) {
+      this.consumer = this.kafka.consumer({ kafkaJS: { groupId, fromBeginning } });
+      await this.consumer.connect();
+      await this.consumer.subscribe({ topics: [...this.handlers.keys()] });
+      await this.consumer.run({ eachMessage: (payload) => this.dispatch(payload) });
+    }
+    this.ready = true;
   }
 
-  public async sendMessage(topic: string, key: string, value: string): Promise<void> {
+  /** Publishes one or more messages; throws if the connector is not ready or the broker rejects them. */
+  async send(topic: string, messages: OutgoingMessage | OutgoingMessage[]): Promise<void> {
+    if (!this.ready || !this.producer) throw new Error('Kafka connector is not ready');
+    const batch = Array.isArray(messages) ? messages : [messages];
+    await this.producer.send({ topic, messages: batch });
+    logger.debug({ info: 'Kafka messages sent', topic, count: batch.length });
+  }
+
+  async close(): Promise<void> {
+    this.ready = false;
+    await this.consumer?.disconnect();
+    await this.producer?.disconnect();
+    this.consumer = undefined;
+    this.producer = undefined;
+    this.kafka = undefined;
+  }
+
+  isReady(): boolean {
+    return this.ready;
+  }
+
+  private async dispatch({ topic, partition, message }: KafkaJS.EachMessagePayload): Promise<void> {
+    const incoming: IncomingMessage = {
+      topic,
+      partition,
+      offset: message.offset,
+      key: message.key?.toString() ?? null,
+      value: message.value?.toString() ?? null,
+      headers: decodeHeaders(message.headers),
+    };
     try {
-      await this.producer.send({ topic, messages: [{ key, value }] });
-      logger.info({ info: 'Message sent', topic, key, value });
+      await this.handlers.get(topic)!(incoming);
     } catch (error) {
-      logger.error({ info: 'Error sending Kafka message:', error });
-      throw error;
-    }
-  }
+      // Message values are not logged: they may contain personal data
+      const context = { topic, partition, offset: message.offset, key: incoming.key };
+      logger.error({ info: 'Kafka message handler failed', ...context, error });
+      if (!this.config.deadLetterSuffix) throw error;
 
-  public async startConsumer(
-    callback: (data: { topic: string; partition: number; message: string }) => Promise<void>,
-    topic: string,
-  ): Promise<void> {
-    if (!this.consumer) {
-      throw new Error('Kafka consumer is not initialized');
-    }
-
-    try {
-      await this.consumer.subscribe({ topic, fromBeginning: true });
-      logger.info({ info: 'Subscribed to topic', topic });
-
-      await this.consumer.run({
-        eachMessage: async ({ topic, partition, message }) => {
-          const value = message.value?.toString() || '';
-          logger.info({ info: 'Message received', topic, partition, value });
-          await callback({ topic, partition, message: value });
-        },
+      const deadLetterTopic = `${topic}${this.config.deadLetterSuffix}`;
+      await this.producer!.send({
+        topic: deadLetterTopic,
+        messages: [
+          {
+            key: message.key,
+            value: message.value,
+            headers: {
+              ...incoming.headers,
+              'x-error': error instanceof Error ? error.message : String(error),
+              'x-original-topic': topic,
+              'x-original-partition': String(partition),
+              'x-original-offset': message.offset,
+            },
+          },
+        ],
       });
-    } catch (error) {
-      logger.error({ info: 'Error running Kafka consumer', error });
-      throw error;
+      logger.warn({ info: 'Kafka message sent to dead-letter topic', ...context, deadLetterTopic });
     }
   }
 }
+
+export default new KafkaConnector(config.get<KafkaConfig>('kafka'));

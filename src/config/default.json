@@ -32,11 +32,13 @@
   },
   "kafka": {
     "enabled": false,
-    "consumerEnabled": false,
     "clientId": "modular-express-ts",
     "brokers": ["localhost:9092"],
     "groupId": "modular-express-ts-group",
-    "topicName": "events"
+    "fromBeginning": false,
+    "ssl": false,
+    "sasl": null,
+    "deadLetterSuffix": ".dlq"
   },
   "hazelcast": {
     "enabled": false,

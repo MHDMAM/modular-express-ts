@@ -5,5 +5,16 @@
     "password": "DB_PASSWORD",
     "server": "DB_SERVER",
     "database": "DB_NAME"
+  },
+  "kafka": {
+    "brokers": {
+      "__name": "KAFKA_BROKERS",
+      "__format": "json"
+    },
+    "sasl": {
+      "mechanism": "KAFKA_SASL_MECHANISM",
+      "username": "KAFKA_SASL_USERNAME",
+      "password": "KAFKA_SASL_PASSWORD"
+    }
   }
 }
