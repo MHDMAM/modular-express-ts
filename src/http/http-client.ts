@@ -1,4 +1,4 @@
-import { SuccessPromiseObj } from '@lTypes/interfaces';
+import { HttpException } from '@core/errors';
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 import {
   BrokenCircuitError,
@@ -16,6 +16,14 @@ import {
 } from 'cockatiel';
 
 export { AxiosRequestConfig, CircuitState };
+
+export type SuccessPromiseObj<T = any, H = any> = {
+  success: boolean;
+  headers?: H;
+  data?: T;
+  reason?: any;
+  exception?: HttpException;
+};
 
 /** Specifies how failing HTTP requests are retried. */
 export interface RetryOptions {

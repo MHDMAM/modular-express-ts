@@ -21,9 +21,8 @@
     "paths": {
       "@/*": ["*"],
       "@core/*": ["core/*"],
-      "@utils/*": ["global/utils/*"],
-      "@lTypes/*": ["global/types/*"],
-      "@connectors/*": ["connectors/*"]
+      "@connectors/*": ["connectors/*"],
+      "@http/*": ["http/*"]
     }
   },
   "tsc-alias": {

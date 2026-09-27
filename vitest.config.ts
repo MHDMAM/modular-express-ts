@@ -9,9 +9,8 @@ export default defineConfig({
     alias: [
       { find: /^@\/(.*)$/, replacement: src('$1') },
       { find: /^@core\/(.*)$/, replacement: src('core/$1') },
-      { find: /^@utils\/(.*)$/, replacement: src('global/utils/$1') },
-      { find: /^@lTypes\/(.*)$/, replacement: src('global/types/$1') },
       { find: /^@connectors\/(.*)$/, replacement: src('connectors/$1') },
+      { find: /^@http\/(.*)$/, replacement: src('http/$1') },
     ],
   },
   test: {

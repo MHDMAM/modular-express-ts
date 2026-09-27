@@ -1,18 +1,11 @@
 import config from '@/config';
 import logger from '@core/logger';
 import { parseTraceparent, runWithContext } from '@core/request-context';
-import {
-  CIRCUIT_OPEN,
-  CircuitState,
-  HttpClient,
-  backoffDelayMs,
-  retryAfterMs,
-  type HttpResponse,
-} from '@utils/HttpClient';
-import ServiceRequester from '@utils/ServiceRequester';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { CIRCUIT_OPEN, CircuitState, HttpClient, backoffDelayMs, retryAfterMs, type HttpResponse } from './http-client';
+import ServiceRequester from './service-requester';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void;
 

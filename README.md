@@ -35,9 +35,7 @@ src/
   connectors/          # index.ts: registry of connectors started before listening and closed on shutdown
     kafka/ redis/ hazelcast/ mssql/  # one folder per connector: code, env schema, tests
   core/                # logger, request context, errors, connector lifecycle, route loading, middleware
-  global/
-    utils/             # HttpClient, ServiceRequester
-    types/             # SuccessPromiseObj
+  http/                # optional outbound HTTP: HttpClient, ServiceRequester
   modules/
     health/            # example module
       routerV1.ts
@@ -128,7 +126,7 @@ All are disabled by default.
 
 ## Outbound HTTP
 
-Create one `ServiceRequester` (`@utils/ServiceRequester`) per downstream service and reuse it:
+Create one `ServiceRequester` (`@http/service-requester`) per downstream service and reuse it:
 
 ```ts
 const users = new ServiceRequester('users', { baseURL: 'https://users.internal' });
@@ -145,7 +143,7 @@ if (!res.success) return next(HttpException.internal());
 - Logs method, URL, status and duration only, never headers or bodies.
 - Never throws: returns `{ success: true, data, headers }` or `{ success: false, reason: { status, code, message } }`.
 
-`HttpClient` (`@utils/HttpClient`) provides the same retry and circuit breaker options without the service conventions.
+`HttpClient` (`@http/http-client`) provides the same retry and circuit breaker options without the service conventions.
 Both are built on [cockatiel](https://github.com/connor4312/cockatiel) and axios.
 
 ## Maintenance
