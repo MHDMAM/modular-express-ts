@@ -1,342 +1,214 @@
+import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
 import config from 'config';
-import _ from 'lodash';
-import * as sql from 'mssql';
+import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
 
-export interface IColumnDetails {
-  datatype: string;
-  typeLength?: number;
-  value: any;
+export interface MssqlConfig extends PoolConfig {
+  enabled: boolean;
 }
 
-export interface ITableDetails {
+/** A parameter with an explicit SQL type, e.g. `{ datatype: 'VarChar', typeLength: 50, value: 'x' }`. */
+export interface TypedValue {
+  /** Name of an mssql type factory: `VarChar`, `NVarChar`, `Int`, `DateTime2`, ... */
+  datatype: string;
+  typeLength?: number;
+  value: unknown;
+}
+
+interface ColumnDetails {
   ColumnName: string;
   DataType: string;
   MaxLength: number;
   TableName: string;
 }
 
-// Type guard function
-function isIColumnDetails(obj: any): obj is IColumnDetails {
-  return obj && typeof obj === 'object' && 'datatype' in obj && 'value' in obj;
+/** mssql type factories, used to map `sys.types` names (lowercase) to the factory names. */
+const TYPES = [
+  'Char',
+  'NChar',
+  'VarChar',
+  'NVarChar',
+  'Text',
+  'NText',
+  'Int',
+  'BigInt',
+  'TinyInt',
+  'SmallInt',
+  'Bit',
+  'Float',
+  'Real',
+  'Money',
+  'SmallMoney',
+  'Numeric',
+  'Decimal',
+  'DateTime',
+  'Time',
+  'Date',
+  'DateTime2',
+  'DateTimeOffset',
+  'SmallDateTime',
+  'UniqueIdentifier',
+  'Image',
+  'Binary',
+  'VarBinary',
+  'Xml',
+  'UDT',
+  'TVP',
+  'Variant',
+];
+
+const SCHEMA_QUERY = `
+  SELECT col.name AS ColumnName, types.name AS DataType, col.max_length AS MaxLength, tbl.name AS TableName
+  FROM sys.columns col WITH (NOLOCK)
+  INNER JOIN sys.types types WITH (NOLOCK) ON col.user_type_id = types.user_type_id
+  LEFT OUTER JOIN sys.tables tbl WITH (NOLOCK) ON tbl.object_id = col.object_id
+  WHERE tbl.name IS NOT NULL AND tbl.name <> 'sysdiagrams'
+  ORDER BY tbl.name`;
+
+function isTypedValue(value: unknown): value is TypedValue {
+  return typeof value === 'object' && value !== null && 'datatype' in value && 'value' in value;
 }
 
-function requestInput(target: sql.Request, ioSource: Record<string, IColumnDetails | any>) {
-  if (!ioSource) return;
+/**
+ * MSSQL connection pool. On init it loads the column types of every table, so query inputs named after a column get
+ * that column's SQL type and length automatically.
+ *
+ * ```ts
+ * import mssql from '@libs/Mssql';
+ * const { recordset } = await mssql.executeQuery<User>('SELECT * FROM users WHERE email = @email', { email }, ['users']);
+ * ```
+ */
+export class MssqlConnector implements Connector {
+  readonly name = 'mssql';
+  private sql?: typeof import('mssql');
+  private pool?: ConnectionPool;
+  private schema: Record<string, ColumnDetails[]> = {};
+  /** Incremented by init() and close(), so an init() still loading the client knows it was closed meanwhile. */
+  private generation = 0;
 
-  _.each(ioSource, (val, key) => {
-    if (isIColumnDetails(val)) {
-      const datatype = sql[val.datatype](val.typeLength || (val.value && val.value.length) || null);
-      target.input(key, datatype, val.value);
-    } else {
-      target.input(key, val);
-    }
-  });
-}
+  constructor(private readonly config: MssqlConfig) {}
 
-function requestOutput(target: sql.Request, ioSource: Record<string, any>) {
-  if (!ioSource) return;
-  _.each(ioSource, (val, key) => {
-    if (isIColumnDetails(val)) {
-      const datatype = sql[val.datatype](val.typeLength || (val.value && val.value.length) || null);
-      target.output(key, datatype, val.value);
-    } else {
-      target.output(key, val);
-    }
-  });
-}
-
-async function _executeQuery(this: Sql, query: string, inputs: Record<string, any>): Promise<any> {
-  const request = this.pool.request();
-  request.on('error', this.onSqlErrorHandler.bind(this));
-  if (!request) return Promise.reject();
-  requestInput(request, inputs);
-
-  const start = process.hrtime.bigint();
-  const result = await request.query(query).catch((error) => {
-    const end = process.hrtime.bigint();
-    const executeBenchmark = Number((end - start) / 1000000n);
-    return Promise.reject({ ...error, executeBenchmark });
-  });
-  const end = process.hrtime.bigint();
-  const executeBenchmark = Number((end - start) / 1000000n);
-  if (!result) return;
-  return Promise.resolve({ ...result, executeBenchmark });
-}
-
-async function _executeSP(this: Sql, query: string, inputs: Record<string, any>, output: Record<string, any>) {
-  const request = this.pool.request();
-  request.on('error', this.onSqlErrorHandler.bind(this));
-  if (!request) return Promise.reject();
-  requestInput(request, inputs);
-  requestInput(request, output);
-
-  const start = process.hrtime.bigint();
-  const result = await request.query(query).catch((error) => {
-    const end = process.hrtime.bigint();
-    const executeBenchmark = Number((end - start) / 1000000n);
-    return Promise.reject({ ...error, executeBenchmark });
-  });
-  const end = process.hrtime.bigint();
-  const executeBenchmark = Number((end - start) / 1000000n);
-  if (!result) return;
-  return Promise.resolve({ ...result, executeBenchmark });
-}
-
-class Sql {
-  pool: sql.ConnectionPool;
-  schema: Record<string, ITableDetails[]>;
-  dbConfig: any;
-  _WaitForSql: Promise<void>;
-
-  Types = [
-    'Char',
-    'NChar',
-    'VarChar',
-    'NVarChar',
-    'Text',
-    'NText',
-    'Int',
-    'BigInt',
-    'TinyInt',
-    'SmallInt',
-    'Bit',
-    'Float',
-    'Real',
-    'Money',
-    'SmallMoney',
-    'Numeric',
-    'Decimal',
-    'DateTime',
-    'Time',
-    'Date',
-    'DateTime2',
-    'DateTimeOffset',
-    'SmallDateTime',
-    'UniqueIdentifier',
-    'Image',
-    'Binary',
-    'VarBinary',
-    'Xml',
-    'UDT',
-    'TVP',
-    'Variant',
-  ];
-
-  constructor() {
-    sql.on('error', this.onSqlErrorHandler.bind(this));
-    this.dbConfig = { ...config.get('db') };
-    this.connect();
+  get enabled(): boolean {
+    return this.config.enabled;
   }
 
-  async connect() {
-    this._WaitForSql = new Promise(async (resolve, reject) => {
-      try {
-        this.pool = await sql.connect(this.dbConfig);
-        logger.info({
-          msg: 'Connection pool created.',
-          path: 'indexSQL/connect',
-          database: {
-            dbServer: this.dbConfig.server,
-            dbName: this.dbConfig.database,
-          },
-        });
-        await this.loadTableSchema();
-        resolve();
-      } catch (error) {
-        this.onSqlErrorHandler(error);
-        reject(error);
-      }
-    });
+  async init(): Promise<void> {
+    const generation = ++this.generation;
+    // Loaded here, not at import time: a disabled connector never loads the client
+    // mssql is CommonJS without detectable named exports: under ES modules only `default` is populated
+    const { default: sql } = await import('mssql');
+    if (generation !== this.generation) throw new Error('MSSQL connector was closed during init');
+
+    const { enabled: _enabled, ...poolConfig } = this.config;
+    const pool = new sql.ConnectionPool(poolConfig);
+    pool.on('error', (error) => logger.error({ info: 'MSSQL pool error', error }));
+    this.sql = sql;
+    this.pool = pool;
+    await pool.connect();
+    this.schema = await this.loadSchema();
   }
 
-  async loadTableSchema() {
-    const query = `
-      SELECT
-          col.name AS ColumnName,
-          types.Name AS DataType,
-          col.max_length AS MaxLength,
-          tbl.name AS TableName
-      FROM
-          sys.columns col WITH (NOLOCK)
-      INNER JOIN
-          sys.types types WITH (NOLOCK) ON col.user_type_id = types.user_type_id
-      LEFT OUTER JOIN
-          sys.tables tbl WITH (NOLOCK) ON tbl.object_id = col.object_id
-      WHERE tbl.name IS NOT NULL AND tbl.name <> 'sysdiagrams'
-      ORDER BY tbl.name
-    `;
-    const types = await _executeQuery.call(this, query, {});
-
-    if (!types) return Promise.reject();
-
-    this.schema = _(types.recordset)
-      .map((item: any): ITableDetails => {
-        const type = this.Types.find((type) => type.toLowerCase() === item.DataType.toLowerCase());
-        item.DataType = type;
-        return {
-          ColumnName: item.ColumnName,
-          DataType: type || item.DataType,
-          MaxLength: item.MaxLength,
-          TableName: item.TableName,
-        };
-      })
-      .groupBy('TableName')
-      .value() as Record<string, ITableDetails[]>; // Explicit cast
-
-    return Promise.resolve();
+  async close(): Promise<void> {
+    this.generation++;
+    const pool = this.pool;
+    this.pool = undefined;
+    this.schema = {};
+    await pool?.close();
   }
 
-  async executeQuery(query: string, inputs: Record<string, any>, tables: string[], recordset = true): Promise<any> {
-    await this._WaitForSql;
-    const preparedData: Record<string, any> = {};
+  isReady(): boolean {
+    return this.pool?.connected ?? false;
+  }
 
-    tables.forEach((table) => {
-      const tempPreparedData = this.buildDataObj(inputs, table);
-      _.assign(preparedData, tempPreparedData);
-    });
+  /**
+   * Runs a parameterised query (`@name` placeholders). Inputs named after a column of one of `tables` are typed from
+   * the schema; `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
+   */
+  async executeQuery<T = any>(query: string, inputs: Record<string, unknown> = {}, tables: string[] = []) {
+    const request = this.request();
+    this.addParameters(request, 'input', this.typeFromSchema(inputs, tables));
+    return this.run<IResult<T>>({ query }, () => request.query<T>(query));
+  }
 
+  /** Executes a stored procedure; `outputs` must be `TypedValue`s (the SQL type of each output parameter). */
+  async executeSP<T = any>(
+    procedure: string,
+    inputs: Record<string, unknown> = {},
+    outputs: Record<string, TypedValue> = {},
+    tables: string[] = [],
+  ) {
+    const request = this.request();
+    this.addParameters(request, 'input', this.typeFromSchema(inputs, tables));
+    this.addParameters(request, 'output', outputs);
+    return this.run<IProcedureResult<T>>({ procedure }, () => request.execute<T>(procedure));
+  }
+
+  private request(): Request {
+    if (!this.pool) throw new Error('MSSQL connector is not ready');
+    return this.pool.request();
+  }
+
+  /** Runs a statement, logging its duration and outcome; parameter values are not logged (personal data). */
+  private async run<R extends IResult<any>>(statement: Record<string, string>, execute: () => Promise<R>): Promise<R> {
+    const start = Date.now();
     try {
-      const result = await _executeQuery.call(this, query, preparedData);
-      logger.info({
-        path: 'SQL Class/executeQuery',
-        info: 'Success Executing Query',
+      const result = await execute();
+      logger.debug({
+        info: 'MSSQL statement',
+        ...statement,
         rowsAffected: result.rowsAffected,
-        executeBenchmark: result.executeBenchmark,
-        query,
-        preparedData,
+        durationMs: Date.now() - start,
       });
-
-      if (recordset) {
-        return result.recordset ?? null;
-      }
-      return _.omit(result, 'executeBenchmark');
+      return result;
     } catch (error) {
-      logger.error({
-        path: 'SQL Class/executeQuery',
-        msg: 'Failed Executing Query',
-        error,
-        error_message: error.message,
-        error_stack: error.stack,
-        dbQuery: {
-          executeBenchmark: error.executeBenchmark,
-          query,
-          inputs,
-        },
-      });
+      logger.error({ info: 'MSSQL statement failed', ...statement, durationMs: Date.now() - start, error });
       throw error;
     }
   }
 
-  async executeQueryMulti(query: string, inputs: Record<string, any>, tables: string[], recordset = true) {
-    await this._WaitForSql;
-    const preparedData: Record<string, any> = {};
-
-    tables.forEach((table) => {
-      const tempPreparedData = this.buildDataObj(inputs, table);
-      _.assign(preparedData, tempPreparedData);
-    });
-
-    try {
-      const result = await _executeQuery.call(this, query, preparedData);
-      logger.info({
-        path: 'SQL Class/executeQuery',
-        info: 'Success Executing Query',
-        rowsAffected: result.rowsAffected,
-        executeBenchmark: result.executeBenchmark,
-        query,
-        preparedData,
-      });
-
-      // if (recordset && result && result.recordset) {
-      if (recordset) {
-        return result.recordset ?? null;
-      }
-      return _.omit(result, 'executeBenchmark');
-    } catch (error) {
-      logger.error({
-        path: 'SQL Class/executeQuery',
-        msg: 'Failed Executing Query',
-        error,
-        error_message: error.message,
-        error_stack: error.stack,
-        dbQuery: {
-          executeBenchmark: error.executeBenchmark,
-          query,
-          inputs,
-        },
-      });
-      throw error;
-    }
+  private sqlType(value: TypedValue): ISqlType {
+    // Only known type factories: `datatype` must never resolve to another export of the driver
+    if (!TYPES.includes(value.datatype)) throw new Error(`MSSQL: unknown datatype "${value.datatype}"`);
+    const factory = (this.sql as any)[value.datatype];
+    return value.typeLength === undefined ? factory() : factory(value.typeLength);
   }
 
-  async executeSP(spName: string, inputs: Record<string, any>, outputs: Record<string, any>): Promise<any> {
-    await this._WaitForSql;
-    try {
-      const result = await _executeSP.call(this, spName, inputs, outputs);
-      return _.omit(result, 'executeBenchmark');
-    } catch (error) {
-      logger.error({
-        path: 'indexSQL/executeSP',
-        msg: 'Failed Executing SP',
-        error_message: error.message,
-        error_stack: error.stack,
-        executeBenchmark: error.executeBenchmark,
-        dbQuery: {
-          inputs,
-          outputs,
-        },
-      });
-      throw error;
-    }
-  }
-
-  buildDataObj(queryInputs: Record<string, any>, tableName: string): Record<string, any> {
-    const table: ITableDetails[] = this.schema[tableName];
-    const returnObj: Record<string, any> = {};
-
-    _.each(queryInputs, (value: any, columnName: string) => {
-      const col = _.find(table, { ColumnName: columnName });
-
-      if (!col || _.isObject(value)) {
-        returnObj[columnName] = value;
+  private addParameters(request: Request, kind: 'input' | 'output', parameters: Record<string, unknown>) {
+    for (const [name, value] of Object.entries(parameters)) {
+      if (isTypedValue(value)) {
+        if (kind === 'input') request.input(name, this.sqlType(value), value.value);
+        else request.output(name, this.sqlType(value), value.value);
+      } else if (kind === 'input') {
+        request.input(name, value);
       } else {
-        const length = _.min([(value && value.length) || 0, col.MaxLength]) as number;
-        returnObj[columnName] = {
-          value: value,
-          datatype: col.DataType,
-          typeLength: length < 0 ? value.length : length,
-        };
+        throw new Error(`MSSQL: output parameter "${name}" needs a TypedValue`);
       }
-    });
-
-    return returnObj;
+    }
   }
 
-  onSqlErrorHandler(error: any) {
-    logger.error({
-      path: 'sql/index',
-      msg: 'Connection Error',
-      error_message: error.message,
-      error_stack: error.stack,
-    });
+  private typeFromSchema(inputs: Record<string, unknown>, tables: string[]): Record<string, unknown> {
+    const columns = tables.flatMap((table) => this.schema[table] ?? []);
+    return Object.fromEntries(
+      Object.entries(inputs).map(([name, value]) => {
+        const column = columns.find((c) => c.ColumnName === name);
+        if (!column || isTypedValue(value) || (typeof value === 'object' && value !== null)) return [name, value];
+        const length = typeof value === 'string' ? value.length : undefined;
+        // MaxLength is -1 for (N)VARCHAR(MAX): use the value's length
+        const typeLength = column.MaxLength < 0 ? length : Math.min(length ?? column.MaxLength, column.MaxLength);
+        return [name, { datatype: column.DataType, typeLength, value } satisfies TypedValue];
+      }),
+    );
+  }
 
-    if (error.message === 'No connection is specified for that request.') {
-      try {
-        this.pool.close();
-      } catch (err) {
-        logger.error({
-          path: 'sql/index',
-          msg: 'Failed to close pool',
-          error_message: err.message,
-          error_stack: err.stack,
-        });
-      }
-      setTimeout(this.connect.bind(this), 5000);
+  private async loadSchema(): Promise<Record<string, ColumnDetails[]>> {
+    const { recordset } = await this.executeQuery<ColumnDetails>(SCHEMA_QUERY);
+    const schema: Record<string, ColumnDetails[]> = {};
+    for (const column of recordset) {
+      const type = TYPES.find((t) => t.toLowerCase() === column.DataType.toLowerCase()) ?? column.DataType;
+      (schema[column.TableName] ??= []).push({ ...column, DataType: type });
     }
+    return schema;
   }
 }
 
-const sqlInstance = new Sql();
-
-export default sqlInstance;
+export default new MssqlConnector(config.get<MssqlConfig>('db'));

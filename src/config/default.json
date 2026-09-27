@@ -15,6 +15,7 @@
     "minVersion": "TLSv1.3"
   },
   "db": {
+    "enabled": false,
     "user": "",
     "password": "",
     "server": "localhost",

@@ -106,8 +106,9 @@ overrides it. Secrets must not go in these files, supply them through environmen
 
 All are disabled by default.
 
-- **MSSQL** (`@libs/Mssql`): connects on first import using the `db` config; tables' column types are loaded so query
-  inputs are typed automatically.
+- **MSSQL** (`@libs/Mssql`): set `db.enabled` to `true`. `executeQuery(query, inputs, tables)` runs parameterised
+  queries (`@name`); inputs named after a column of `tables` get that column's SQL type and length from the schema
+  loaded on startup. `executeSP(procedure, inputs, outputs)` runs stored procedures. Parameter values are never logged.
 - **Kafka** (`@libs/Kafka`, Confluent's official client): set `kafka.enabled` to `true`. Register topic handlers with
   `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if handlers exist) and publish with
   `await kafka.send(topic, { key, value })`. A handler that throws sends the message to `<topic>.dlq`
