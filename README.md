@@ -81,8 +81,10 @@ All are disabled by default.
 - **Hazelcast** (`@utils/hazelcast`): set `hazelcast.enabled` to `true`; `hazelcast.client` is passed to the Hazelcast
   client as-is.
 
-For outbound HTTP calls use `ServiceRequester` (logging and timing), built on `HttpClient` with an optional
-`CircuitBreaker`.
+## Outbound HTTP
+
+For outbound HTTP calls use `ServiceRequester` (`@utils/ServiceRequester`), which adds logging and timing on top of
+`HttpClient` (retries) with an optional `CircuitBreaker`.
 
 ## License
 
