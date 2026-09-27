@@ -1,8 +1,8 @@
 import config, { envBoolean, envList, envOptional, envString, parseEnv } from '@/config';
 import type { KafkaJS } from '@confluentinc/kafka-javascript';
+import type { Connector } from '@core/lifecycle';
 import logger from '@core/logger';
 import { contextFromHeaders, contextHeaders, runWithContext } from '@core/request-context';
-import { Connector } from '@lTypes/connector';
 import { z } from 'zod';
 
 export interface KafkaConfig {
@@ -67,7 +67,7 @@ function decodeHeaders(headers?: KafkaJS.IHeaders): Record<string, string> {
  * Kafka producer and (optional) consumer, using Confluent's official client through its KafkaJS-compatible API.
  *
  * ```ts
- * import kafka from '@libs/Kafka';
+ * import kafka from '@connectors/kafka/kafka';
  * kafka.subscribe('orders', async (message) => { ... }); // at module load, before startup
  * await kafka.send('orders', { key: order.id, value: JSON.stringify(order) });
  * ```

@@ -1,8 +1,9 @@
 import { envBoolean, envString, parseEnv } from '@/config';
+import type { Connector } from '@core/lifecycle';
 import logger from '@core/logger';
-import { Cache, Connector } from '@lTypes/connector';
 import type { createClient } from 'redis';
 import { z } from 'zod';
+import type { Cache } from '../cache';
 
 export interface RedisConfig {
   enabled: boolean;
@@ -18,7 +19,7 @@ export type RedisClient = ReturnType<typeof createClient<{}, {}, {}, 3, {}>>;
  * Redis (or Valkey) client with a JSON `Cache` on top; use `raw` for any other command.
  *
  * ```ts
- * import redis from '@libs/Redis';
+ * import redis from '@connectors/redis/redis';
  * await redis.set(`user:${id}`, user, 60_000);
  * await redis.raw.incr('visits');
  * ```

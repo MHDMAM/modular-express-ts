@@ -23,7 +23,7 @@
       "@core/*": ["core/*"],
       "@utils/*": ["global/utils/*"],
       "@lTypes/*": ["global/types/*"],
-      "@libs/*": ["global/libs/*"]
+      "@connectors/*": ["connectors/*"]
     }
   },
   "tsc-alias": {

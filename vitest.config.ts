@@ -11,7 +11,7 @@ export default defineConfig({
       { find: /^@core\/(.*)$/, replacement: src('core/$1') },
       { find: /^@utils\/(.*)$/, replacement: src('global/utils/$1') },
       { find: /^@lTypes\/(.*)$/, replacement: src('global/types/$1') },
-      { find: /^@libs\/(.*)$/, replacement: src('global/libs/$1') },
+      { find: /^@connectors\/(.*)$/, replacement: src('connectors/$1') },
     ],
   },
   test: {

@@ -3,6 +3,7 @@ import { formatStatus } from '@core/errors';
 import {
   checkConnectors,
   closeConnectors,
+  Connector,
   connectorStatus,
   getConnectorStatus,
   initConnectors,
@@ -10,7 +11,6 @@ import {
   stopConnectorMonitor,
 } from '@core/lifecycle';
 import logger from '@core/logger';
-import { Connector } from '@lTypes/connector';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTestApp, TestApp } from '../../test/support/test-app';
 

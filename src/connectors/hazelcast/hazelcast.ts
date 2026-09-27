@@ -1,8 +1,9 @@
 import { envBoolean, envList, envNumber, envString, parseEnv } from '@/config';
+import type { Connector } from '@core/lifecycle';
 import logger from '@core/logger';
-import { Cache, Connector } from '@lTypes/connector';
 import type { Client, ClientConfig, IMap, LifecycleState, ReconnectMode } from 'hazelcast-client';
 import { z } from 'zod';
+import type { Cache } from '../cache';
 
 export interface HazelcastConfig {
   enabled: boolean;
@@ -16,7 +17,7 @@ export interface HazelcastConfig {
  * Hazelcast client exposing distributed maps, and a `Cache` over the default map.
  *
  * ```ts
- * import hazelcast from '@libs/Hazelcast';
+ * import hazelcast from '@connectors/hazelcast/hazelcast';
  * await hazelcast.set(`user:${id}`, user, 60_000);
  * const sessions = await hazelcast.map<Session>('sessions');
  * ```

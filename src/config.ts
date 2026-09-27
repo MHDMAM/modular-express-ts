@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Configuration comes from environment variables only (Twelve-Factor), validated with zod when the app starts.
  * Locally, `npm run dev` / `npm start` load `.env` (see `.env.example`). Each connector declares its own variables
- * next to its code (e.g. `kafkaConfigFromEnv` in `@libs/Kafka`).
+ * next to its code (e.g. `kafkaConfigFromEnv` in `@connectors/kafka/kafka`).
  */
 
 export class ConfigError extends Error {

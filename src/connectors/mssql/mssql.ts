@@ -1,6 +1,6 @@
 import { envBoolean, envNumber, envOptional, envString, parseEnv } from '@/config';
+import type { Connector } from '@core/lifecycle';
 import logger from '@core/logger';
-import { Connector } from '@lTypes/connector';
 import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
 import { z } from 'zod';
 
@@ -75,7 +75,7 @@ function isTypedValue(value: unknown): value is TypedValue {
  * that column's SQL type and length automatically.
  *
  * ```ts
- * import mssql from '@libs/Mssql';
+ * import mssql from '@connectors/mssql/mssql';
  * const { recordset } = await mssql.executeQuery<User>('SELECT * FROM users WHERE email = @email', { email }, ['users']);
  * ```
  */

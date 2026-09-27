@@ -1,7 +1,20 @@
 import config from '@/config';
 import registry from '@/connectors';
 import logger from '@core/logger';
-import { Connector } from '@lTypes/connector';
+
+/**
+ * An external dependency (message broker, cache, database, ...) with an explicit lifecycle.
+ * Connectors listed in `src/connectors/index.ts` are initialised before the server starts listening and closed on
+ * shutdown.
+ */
+export interface Connector {
+  readonly name: string;
+  /** Disabled connectors are skipped by the lifecycle and not reported by the readiness check. */
+  readonly enabled: boolean;
+  init(): Promise<void>;
+  close(): Promise<void>;
+  isReady(): boolean;
+}
 
 /**
  * - `disabled`: turned off in config, never initialised

@@ -32,12 +32,12 @@ src/
   server.ts            # entry point: process signals, unhandled errors, graceful shutdown
   app.ts               # express app: middleware, route loading, error handling, http/https
   config.ts            # core configuration from environment variables (zod)
-  connectors.ts        # connectors started before listening and closed on shutdown
+  connectors/          # index.ts: registry of connectors started before listening and closed on shutdown
+    kafka/ redis/ hazelcast/ mssql/  # one folder per connector: code, env schema, tests
   core/                # logger, request context, errors, connector lifecycle, route loading, middleware
   global/
-    libs/              # connectors: Hazelcast, Kafka, Mssql, Redis
     utils/             # HttpClient, ServiceRequester
-    types/             # shared types (Connector, Cache, ...)
+    types/             # SuccessPromiseObj
   modules/
     health/            # example module
       routerV1.ts
@@ -79,17 +79,18 @@ the call chain, can read it with `getRequestContext()` from `@core/request-conte
 - `GET /health/ready`: readiness, `503` unless every enabled connector is `running`; the payload lists each connector's
   status. Use it for load balancer or Kubernetes readiness probes.
 
-On startup every enabled connector in `src/connectors.ts` is initialised in order before the server listens; if one
-fails or is not ready within `CONNECTOR_INIT_TIMEOUT_MS` (default 30s), the connectors are closed and the process exits.
-On `SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order (each within
-`CONNECTOR_CLOSE_TIMEOUT_MS`, default 5s), and the process exits (forced after `SHUTDOWN_TIMEOUT_MS`, default 10s).
+On startup every enabled connector in `src/connectors/index.ts` is initialised in order before the server listens; if
+one fails or is not ready within `CONNECTOR_INIT_TIMEOUT_MS` (default 30s), the connectors are closed and the process
+exits. On `SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order (each
+within `CONNECTOR_CLOSE_TIMEOUT_MS`, default 5s), and the process exits (forced after `SHUTDOWN_TIMEOUT_MS`, default
+10s).
 
 Each connector has a status, logged on every change: `disabled`, `starting` → `running` or `failed`, `unavailable`
 (running but not ready, e.g. reconnecting) and back to `running`, then `stopping` → `stopped`. A summary is logged once
 all connectors have started, and readiness is re-checked every `CONNECTOR_MONITOR_INTERVAL_MS` (default 10s).
 
-A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`). Connectors load
-their client library inside `init()`, so a disabled connector never loads it.
+A connector implements `Connector` from `src/core/lifecycle.ts` (`init`, `close`, `isReady`). Connectors load their
+client library inside `init()`, so a disabled connector never loads it.
 
 ## Configuration
 
@@ -99,7 +100,8 @@ stops the app with a message listing every invalid variable. `.env.example` docu
 environment variables (e.g. Kubernetes ConfigMaps and Secrets) and never commit `.env`.
 
 Core settings are in `src/config.ts` (`import config from '@/config'` gives typed values). Each connector reads its own
-variables next to its code (`KAFKA_*` in `@libs/Kafka`, ...), so removing a connector removes its configuration.
+variables next to its code (`KAFKA_*` in `@connectors/kafka/kafka`, ...), so removing a connector removes its
+configuration.
 
 Booleans accept `true`/`false`, `1`/`0` or `yes`/`no`; lists are comma-separated; unset or empty variables use the
 default.
@@ -108,21 +110,21 @@ default.
 
 All are disabled by default.
 
-- **MSSQL** (`@libs/Mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`. `executeQuery(query, inputs, tables)` runs
-  parameterised queries (`@name`); inputs named after a column of `tables` get that column's SQL type and length from
-  the schema loaded on startup. `executeSP(procedure, inputs, outputs)` runs stored procedures. Parameter values are
-  never logged.
-- **Kafka** (`@libs/Kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`. Register topic
-  handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if handlers exist) and
-  publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to `<topic>.dlq`
-  (`KAFKA_DEAD_LETTER_SUFFIX`, empty to retry instead). Set `KAFKA_SSL` and `KAFKA_SASL_MECHANISM`,
+- **MSSQL** (`@connectors/mssql/mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`.
+  `executeQuery(query, inputs, tables)` runs parameterised queries (`@name`); inputs named after a column of `tables`
+  get that column's SQL type and length from the schema loaded on startup. `executeSP(procedure, inputs, outputs)` runs
+  stored procedures. Parameter values are never logged.
+- **Kafka** (`@connectors/kafka/kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`.
+  Register topic handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if
+  handlers exist) and publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to
+  `<topic>.dlq` (`KAFKA_DEAD_LETTER_SUFFIX`, empty to retry instead). Set `KAFKA_SSL` and `KAFKA_SASL_MECHANISM`,
   `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` for managed Kafka.
-- **Hazelcast** (`@libs/Hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements `Cache` (`get`,
-  `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME`, and `map(name)` returns any distributed map.
-  Other client options can be added in `hazelcastConfigFromEnv`.
-- **Redis** (`@libs/Redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache` with JSON
-  values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for other
-  commands.
+- **Hazelcast** (`@connectors/hazelcast/hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements
+  `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME`, and `map(name)` returns any
+  distributed map. Other client options can be added in `hazelcastConfigFromEnv`.
+- **Redis** (`@connectors/redis/redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache`
+  with JSON values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for
+  other commands.
 
 ## Outbound HTTP
 

@@ -1,7 +1,7 @@
 import logger from '@core/logger';
-import { RedisConfig, RedisConnector, redisConfigFromEnv } from '@libs/Redis';
 import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RedisConfig, RedisConnector, redisConfigFromEnv } from './redis';
 
 /** In-memory stand-in for a node-redis client. */
 class FakeRedisClient extends EventEmitter {
