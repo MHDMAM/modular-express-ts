@@ -36,5 +36,28 @@
     "brokers": ["localhost:9092"],
     "groupId": "nodejs-boilerplate-group",
     "topicName": "events"
+  },
+  "hazelcast": {
+    "enabled": false,
+    "mapName": "default",
+    "client": {
+      "clusterName": "dev",
+      "network": {
+        "clusterMembers": ["127.0.0.1:5701"],
+        "smartRouting": true,
+        "redoOperation": true,
+        "connectionTimeout": 6000
+      },
+      "connectionStrategy": {
+        "asyncStart": false,
+        "reconnectMode": "ASYNC",
+        "connectionRetry": {
+          "initialBackoffMillis": 1000,
+          "maxBackoffMillis": 60000,
+          "multiplier": 2,
+          "jitter": 0.1
+        }
+      }
+    }
   }
 }
