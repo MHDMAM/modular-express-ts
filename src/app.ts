@@ -94,7 +94,7 @@ class App {
     if (routers.length > 0) this.app.use(config.get('baseUrl'), routers);
     this.app.use(config.get('baseUrl'), checkAvailability);
 
-    this.app.use('*', notFoundMiddleware);
+    this.app.use(notFoundMiddleware);
   }
 
   private initializeErrorHandling() {

@@ -1,13 +1,15 @@
 import type { Router } from 'express';
-import { glob } from 'glob';
-import path from 'path';
+import { globSync } from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /** Imports every router file matching the glob patterns (sorted by path) and returns their default exports. */
 export default async function loadRouters(patterns: string[]): Promise<Router[]> {
   const files = patterns
-    .flatMap((pattern) => glob.sync(pattern.replace(/\\/g, '/')))
+    .flatMap((pattern) => globSync(pattern))
     .filter((file) => !file.endsWith('.d.ts'))
     .sort();
-  const modules = await Promise.all(files.map((file) => import(path.resolve(file))));
-  return modules.map((module) => module.default);
+  const modules = await Promise.all(files.map((file) => import(pathToFileURL(path.resolve(file)).href)));
+  // A compiled CommonJS router file imported natively exposes its exports object as `default`
+  return modules.map((module) => (typeof module.default === 'function' ? module.default : module.default?.default));
 }

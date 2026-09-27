@@ -7,7 +7,7 @@ optional MSSQL, Kafka, Hazelcast and Redis connectors.
 
 ```sh
 npm i
-npm run dev        # nodemon + ts-node, NODE_ENV=development
+npm run dev        # tsx watch mode, NODE_ENV=development
 curl localhost:3000/api/v1/health
 ```
 
@@ -15,7 +15,7 @@ curl localhost:3000/api/v1/health
 
 | Script              | Description                                                       |
 | ------------------- | ----------------------------------------------------------------- |
-| `npm run dev`       | Start in watch mode (nodemon + ts-node)                           |
+| `npm run dev`       | Start in watch mode (tsx)                                         |
 | `npm run debug`     | Same as `dev` with the Node inspector enabled                     |
 | `npm run build`     | Clean `dist/`, compile with `tsc` and rewrite path aliases        |
 | `npm start`         | Run the compiled app from `dist/`                                 |
