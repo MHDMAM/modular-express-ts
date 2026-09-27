@@ -8,6 +8,7 @@ import {
 } from '@utils/HttpClient';
 import logger from '@utils/logger';
 import ServiceRequester from '@utils/ServiceRequester';
+import config from 'config';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
 
@@ -274,7 +275,7 @@ describe('ServiceRequester', () => {
 
     const res = await requester.httpCall({ url: '/' });
 
-    expect(server.requests[0].headers['x-source']).toBe('modular-express-ts');
+    expect(server.requests[0].headers['x-source']).toBe(config.get('APP_NAME'));
     expect(res.headers).toMatchObject({ 'x-custom': 'yes' });
     expect(res.headers).not.toHaveProperty('date');
     expect(res.headers).not.toHaveProperty('connection');
