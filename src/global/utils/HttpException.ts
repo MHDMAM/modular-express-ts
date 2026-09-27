@@ -50,4 +50,8 @@ export class HttpException extends Error {
   static internal(message?: string, data?: any) {
     return new HttpException(500, formatStatus(5), message || 'Internal Server Error', data);
   }
+
+  static serviceUnavailable(message?: string, data?: any) {
+    return new HttpException(503, formatStatus(6), message || 'Service Unavailable', data);
+  }
 }

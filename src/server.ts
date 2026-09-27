@@ -5,7 +5,7 @@ process.env['NODE_CONFIG_DIR'] = join(__dirname, 'config');
 process.env.NODE_PATH = resolve(__dirname);
 
 const app = new App();
-app.listen();
+app.start();
 
 process.on('unhandledRejection', function (reason: Error, promise: Promise<any>) {
   /* I just caught an unhandled promise rejection, 

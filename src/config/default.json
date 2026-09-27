@@ -5,6 +5,7 @@
   "routerExp": "modules/**/routerV1.{js,ts}",
   "statusPrefix": "APP",
   "log_dir": "logs",
+  "shutdownTimeoutMs": 10000,
   "ssl": {
     "key": "ssl_cert/server.key",
     "cert": "ssl_cert/server.cer",

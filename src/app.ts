@@ -3,6 +3,7 @@ import checkAvailability from '@middleware/express';
 import notFoundMiddleware from '@middleware/notFound';
 import { requestLogger } from '@middleware/requestLogger';
 import envHandler from '@utils/envHandler';
+import { closeConnectors, initConnectors } from '@utils/lifecycle';
 import logger from '@utils/logger';
 import compression from 'compression';
 import config from 'config';
@@ -22,6 +23,7 @@ class App {
   private ssl: boolean;
   private port: string | number;
   private server: http.Server;
+  private shuttingDown = false;
 
   constructor() {
     this.app = express();
@@ -95,26 +97,37 @@ class App {
     this.app.use(errorMiddleware);
   }
 
+  /** Initialises the connectors, then starts listening. Exits if a connector cannot be initialised. */
+  public async start() {
+    try {
+      await initConnectors();
+    } catch (error) {
+      logger.error({ info: 'Startup aborted: a connector failed to initialise', error });
+      process.exit(1);
+    }
+    this.listen();
+  }
+
+  /** Stops accepting requests, closes the connectors and exits; forces the exit after `shutdownTimeoutMs`. */
   public gracefullyShutdown(reason: string) {
-    logger.info({
-      info: `Closing Server Due to (${reason})!!`,
-    });
-    if (!this.server) process.exit();
-    this.server.close(() => {
-      logger.info({
-        info: 'Server Closed Gracefully!!! ',
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    logger.info({ info: `Closing Server Due to (${reason})!!` });
+
+    const timeoutMs: number = config.get('shutdownTimeoutMs');
+    const forceExit = setTimeout(() => {
+      logger.error({ info: `Shutdown took longer than ${timeoutMs}ms, forcing exit` });
+      process.exit(1);
+    }, timeoutMs);
+
+    const closeServer = new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
+    closeServer
+      .then(() => closeConnectors())
+      .then(() => {
+        logger.info({ info: 'Server Closed Gracefully!!! ' });
+        clearTimeout(forceExit);
+        process.exit();
       });
-      clearTimeout(forceExit);
-      process.exit();
-    });
-    // Force close server after 5secs
-    let forceExit = setTimeout((e) => {
-      logger.info({
-        info: 'Been 5 Seconds, Forcing server to close !!!',
-        error_message: e,
-      });
-      process.exit();
-    }, 5000);
   }
 
   /**

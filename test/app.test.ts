@@ -1,25 +1,16 @@
-import { SUCCESS_STATUS, formatStatus } from '@utils/HttpException';
-import config from 'config';
-import http from 'http';
-import { AddressInfo } from 'net';
-import App from '../src/app';
+import { formatStatus, SUCCESS_STATUS } from '@utils/HttpException';
+import { startTestApp, TestApp } from './support/testApp';
 
 describe('App', () => {
-  let server: http.Server;
+  let app: TestApp;
   let baseUrl: string;
 
-  beforeAll((done) => {
-    server = http.createServer(new App().getServer()).listen(0, () => {
-      const { port } = server.address() as AddressInfo;
-      baseUrl = `http://127.0.0.1:${port}${config.get('baseUrl')}`;
-      done();
-    });
+  beforeAll(async () => {
+    app = await startTestApp();
+    baseUrl = app.url;
   });
 
-  afterAll((done) => {
-    server.closeAllConnections();
-    server.close(done);
-  });
+  afterAll(() => app.close());
 
   it('should auto-load module routes and respond with success status and metadata', async () => {
     const res = await fetch(`${baseUrl}/health`);

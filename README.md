@@ -29,6 +29,7 @@ curl localhost:3000/api/v1/health
 src/
   server.ts            # entry point: process signals, unhandled errors, graceful shutdown
   app.ts               # express app: middleware, route loading, error handling, http/https
+  connectors.ts        # connectors started before listening and closed on shutdown
   config/              # `config` package files, selected by NODE_ENV
   global/
     libs/              # connector singletons: Mssql, Kafka, Hazelcast
@@ -57,6 +58,18 @@ Every file matching `routerExp` (default `modules/**/routerV1.{js,ts}`) is loade
   the matching HTTP code. Unknown errors become a 500, invalid JSON bodies a 400.
 - Status codes follow `<statusPrefix><version><3-digit code>`; see `formatStatus` in
   `src/global/utils/HttpException.ts`.
+
+## Health & Lifecycle
+
+- `GET /health`: liveness, the process is up.
+- `GET /health/ready`: readiness, `503` until every enabled connector is ready. Use it for load balancer or Kubernetes
+  readiness probes.
+
+On startup every enabled connector in `src/connectors.ts` is initialised in order before the server listens; if one
+fails, the others are closed and the process exits. On `SIGINT`/`SIGTERM` the server stops accepting requests, the
+connectors are closed in reverse order, and the process exits (forced after `shutdownTimeoutMs`, default 10s).
+
+A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`).
 
 ## Configuration
 
