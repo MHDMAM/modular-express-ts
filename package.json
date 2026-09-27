@@ -9,7 +9,7 @@
     "typescript"
   ],
   "author": "MHD Abdulkarim Al Midani",
-  "license": "ISC",
+  "license": "MIT",
   "scripts": {
     "dev": "nodemon",
     "debug": "cross-env NODE_OPTIONS=--inspect nodemon",

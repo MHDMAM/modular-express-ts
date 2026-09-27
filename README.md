@@ -83,3 +83,7 @@ All are disabled by default.
 
 For outbound HTTP calls use `ServiceRequester` (logging and timing), built on `HttpClient` with an optional
 `CircuitBreaker`.
+
+## License
+
+[MIT](LICENSE)
