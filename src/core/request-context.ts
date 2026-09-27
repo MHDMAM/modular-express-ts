@@ -10,7 +10,13 @@ export interface RequestContext {
   requestId: string;
   /** W3C trace id (32 hex chars): taken from the `traceparent` header, or generated. */
   traceId: string;
+  /** Reference to the authenticated user (an id, never personal data), set with `setRequestContext` once known. */
+  userRef?: string;
+  // Add further request metadata here (e.g. tenantId, clientId); the logger includes every field automatically.
 }
+
+/** Values that can be added once the request is under way; the ids are fixed when the context is created. */
+export type RequestContextValues = Partial<Omit<RequestContext, 'requestId' | 'traceId'>>;
 
 const storage = new AsyncLocalStorage<RequestContext>();
 
@@ -22,6 +28,17 @@ export function runWithContext<T>(context: RequestContext, fn: () => T): T {
 /** The current request context, or `undefined` outside of a request (e.g. at startup). */
 export function getRequestContext(): RequestContext | undefined {
   return storage.getStore();
+}
+
+/**
+ * Adds values to the current request context, e.g. `setRequestContext({ userRef })` in an auth middleware; everything
+ * that runs afterwards in the same request sees them. Returns `false` (and does nothing) outside of a request.
+ */
+export function setRequestContext(values: RequestContextValues): boolean {
+  const context = storage.getStore();
+  if (!context) return false;
+  Object.assign(context, values);
+  return true;
 }
 
 const TRACEPARENT = /^[\da-f]{2}-([\da-f]{32})-[\da-f]{16}-[\da-f]{2}$/;

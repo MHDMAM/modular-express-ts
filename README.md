@@ -70,6 +70,8 @@ the call chain, can read it with `getRequestContext()` from `@core/request-conte
 - `ServiceRequester` and `kafka.send()` forward `x-request-id` and `traceparent`, and Kafka handlers run in a context
   rebuilt from the message headers, so one id follows a request across services.
 - Request/response headers and bodies are not logged, as they may carry credentials or personal data.
+- Add request metadata once it is known with `setRequestContext()`, e.g. `setRequestContext({ userRef })` in an auth
+  middleware: later logs in that request include it. New fields go in the `RequestContext` interface.
 - Keep the context to request metadata (ids, tenant, user reference); pass business data as normal arguments.
 
 ## Responses & Errors

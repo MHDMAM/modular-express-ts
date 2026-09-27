@@ -7,6 +7,7 @@ import {
   getRequestContext,
   parseTraceparent,
   runWithContext,
+  setRequestContext,
 } from '@core/request-context';
 import { Writable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -82,6 +83,24 @@ describe('request context', () => {
     await expect(Promise.all([handle('a', 30), handle('b', 5), handle('c', 15)])).resolves.toEqual(['a', 'b', 'c']);
   });
 
+  it('takes values added later in the request (e.g. by an auth middleware), for that request only', async () => {
+    const handle = (requestId: string, userRef: string, delayMs: number) =>
+      runWithContext({ requestId, traceId: TRACE_ID }, async () => {
+        await sleep(delayMs);
+        expect(setRequestContext({ userRef })).toBe(true);
+        await sleep(delayMs);
+        return getRequestContext();
+      });
+
+    const [a, b] = await Promise.all([handle('a', 'user-a', 20), handle('b', 'user-b', 5)]);
+    expect(a).toEqual({ requestId: 'a', traceId: TRACE_ID, userRef: 'user-a' });
+    expect(b).toEqual({ requestId: 'b', traceId: TRACE_ID, userRef: 'user-b' });
+  });
+
+  it('ignores added values outside of a request', () => {
+    expect(setRequestContext({ userRef: 'user-1' })).toBe(false);
+    expect(getRequestContext()).toBeUndefined();
+  });
   it('builds propagation headers from the current context', () => {
     runWithContext({ requestId: 'req-1', traceId: TRACE_ID }, () => {
       const headers = contextHeaders();
@@ -110,6 +129,14 @@ describe('logger', () => {
     expect(logs.lines[0].time).toBeTruthy();
   });
 
+  it('includes values added to the context after it was created', () => {
+    runWithContext({ requestId: 'req-1', traceId: TRACE_ID }, () => {
+      setRequestContext({ userRef: 'user-1' });
+      logger.info('authenticated');
+    });
+
+    expect(logs.lines[0]).toMatchObject({ requestId: 'req-1', userRef: 'user-1', message: 'authenticated' });
+  });
   it('has no context fields outside of a request', () => {
     logger.info('startup');
 
