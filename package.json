@@ -1,6 +1,6 @@
 {
   "name": "modular-express-ts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Express + TypeScript API boilerplate with auto-loaded modules, structured logging and optional MSSQL, Kafka and Hazelcast connectors",
   "main": "dist/server.js",
   "keywords": [
