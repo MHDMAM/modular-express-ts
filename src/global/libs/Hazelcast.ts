@@ -1,55 +1,89 @@
+import { Cache, Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
-import { Client, ClientConfig, IMap } from 'hazelcast-client';
+import config from 'config';
+import { Client, ClientConfig, IMap, LifecycleState } from 'hazelcast-client';
 
-export default class HazelcastManager {
-  private static instance: HazelcastManager;
-  private hazelcastClient: Client;
-  map: IMap<string, any>;
+export interface HazelcastConfig {
+  enabled: boolean;
+  /** Map used by the `Cache` methods (`get`, `set`, `delete`). */
+  mapName: string;
+  /** Passed to the Hazelcast client as-is (cluster name, members, connection strategy, ...). */
+  client: ClientConfig;
+}
 
-  private constructor() {
-    // Private constructor to enforce singleton pattern
+/**
+ * Hazelcast client exposing distributed maps, and a `Cache` over the default map.
+ *
+ * ```ts
+ * import hazelcast from '@libs/Hazelcast';
+ * await hazelcast.set(`user:${id}`, user, 60_000);
+ * const sessions = await hazelcast.map<Session>('sessions');
+ * ```
+ */
+export class HazelcastConnector implements Connector, Cache {
+  readonly name = 'hazelcast';
+  private client?: Client;
+  private readonly maps = new Map<string, Promise<IMap<string, unknown>>>();
+  private connected = false;
+
+  constructor(private readonly config: HazelcastConfig) {}
+
+  get enabled(): boolean {
+    return this.config.enabled;
   }
 
-  public static getInstance(): HazelcastManager {
-    if (!HazelcastManager.instance) {
-      HazelcastManager.instance = new HazelcastManager();
+  async init(): Promise<void> {
+    const clientConfig: ClientConfig = {
+      ...this.config.client,
+      lifecycleListeners: [...(this.config.client.lifecycleListeners ?? []), (state) => this.onLifecycle(state)],
+    };
+    this.client = await Client.newHazelcastClient(clientConfig);
+    this.connected = true;
+  }
+
+  async close(): Promise<void> {
+    const client = this.client;
+    this.client = undefined;
+    this.maps.clear();
+    this.connected = false;
+    await client?.shutdown();
+  }
+
+  isReady(): boolean {
+    return this.connected;
+  }
+
+  /** Returns a distributed map by name (defaults to `hazelcast.mapName`). */
+  map<V>(name: string = this.config.mapName): Promise<IMap<string, V>> {
+    if (!this.client) throw new Error('Hazelcast connector is not ready');
+    let map = this.maps.get(name);
+    if (!map) {
+      map = this.client.getMap<string, unknown>(name);
+      this.maps.set(name, map);
     }
-    return HazelcastManager.instance;
+    return map as Promise<IMap<string, V>>;
   }
 
-  public async initialize(config?: ClientConfig): Promise<void> {
-    // Perform Hazelcast client initialization with the provided configuration
-    this.hazelcastClient = await Client.newHazelcastClient(config);
-    return Promise.resolve();
+  async get<T>(key: string): Promise<T | undefined> {
+    const value = await (await this.map<T>()).get(key);
+    return value ?? undefined;
   }
 
-  public async shutdown(): Promise<void> {
-    // Perform cleanup, like removing listeners, etc.
-    if (this.hazelcastClient) await this.hazelcastClient.shutdown();
+  async set<T>(key: string, value: T, ttlMs = 0): Promise<void> {
+    await (await this.map<T>()).set(key, value, ttlMs);
   }
 
-  public async getMap<T>(mapName: string): Promise<IMap<string, T>> {
-    // Use the Hazelcast client instance to get a distributed map
-    let start: bigint = process.hrtime.bigint();
-    if (!this.map) this.map = await this.hazelcastClient.getMap(mapName);
-    const benchmark = Number((process.hrtime.bigint() - start) / 1000000n);
-    logger.info({ info: 'Benchmark, Get Map', benchmark });
-    return Promise.resolve(this.map);
+  async delete(key: string): Promise<void> {
+    await (await this.map()).delete(key);
   }
 
-  public async putDataIntoMap<T>(mapName: string, key: string, data: T, ttl: number = 0): Promise<T> {
-    return (await this.getMap<T>(mapName)).put(key, data, ttl);
-  }
-
-  public async set<T>(mapName: string, key: string, data: T, ttl: number) {
-    return (await this.getMap<T>(mapName)).set(key, data, ttl);
-  }
-
-  public async getDataFromMap<T>(mapName: string, key: string): Promise<T> {
-    return (await this.getMap<T>(mapName)).get(key);
-  }
-
-  public async removeFromMap<T>(mapName: string, key: string): Promise<boolean | T> {
-    return (await this.getMap<T>(mapName)).remove(key);
+  private onLifecycle(state: LifecycleState) {
+    if (state === LifecycleState.CONNECTED) this.connected = true;
+    if ([LifecycleState.DISCONNECTED, LifecycleState.SHUTTING_DOWN, LifecycleState.SHUTDOWN].includes(state)) {
+      this.connected = false;
+    }
+    logger.info({ info: 'Hazelcast lifecycle', state });
   }
 }
+
+export default new HazelcastConnector(config.get<HazelcastConfig>('hazelcast'));

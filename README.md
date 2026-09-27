@@ -94,8 +94,9 @@ All are disabled by default.
   `await kafka.send(topic, { key, value })`. A handler that throws sends the message to `<topic>.dlq`
   (`kafka.deadLetterSuffix`, empty to retry instead). Set `kafka.ssl` and `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`,
   `KAFKA_SASL_PASSWORD` for managed Kafka; `KAFKA_BROKERS` takes a JSON array.
-- **Hazelcast** (`@utils/hazelcast`): set `hazelcast.enabled` to `true`; `hazelcast.client` is passed to the Hazelcast
-  client as-is.
+- **Hazelcast** (`@libs/Hazelcast`): set `hazelcast.enabled` to `true`; `hazelcast.client` is passed to the Hazelcast
+  client as-is. Implements `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `hazelcast.mapName`, and
+  `map(name)` returns any distributed map.
 
 ## Outbound HTTP
 
