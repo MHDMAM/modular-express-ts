@@ -14,40 +14,50 @@ curl localhost:3000/api/v1/health
 
 ## Scripts
 
-| Script                 | Description                                                       |
-| ---------------------- | ----------------------------------------------------------------- |
-| `npm run dev`          | Start in watch mode (tsx), loading `.env` if present              |
-| `npm run debug`        | Same as `dev` with the Node inspector enabled                     |
-| `npm run build`        | Clean `dist/`, compile with `tsc` and rewrite path aliases        |
-| `npm start`            | Run the compiled app from `dist/`, loading `.env` if present      |
-| `npm run typecheck`    | Type-check without emitting                                       |
-| `npm run format`       | Format with Prettier (imports organised automatically)            |
-| `npm run format:check` | Check formatting (as CI does)                                     |
-| `npm test`             | Run the Vitest tests from `test/` (`npm run test:watch` to watch) |
+| Script                 | Description                                                  |
+| ---------------------- | ------------------------------------------------------------ |
+| `npm run dev`          | Start in watch mode (tsx), loading `.env` if present         |
+| `npm run debug`        | Same as `dev` with the Node inspector enabled                |
+| `npm run build`        | Clean `dist/`, compile with `tsc` and rewrite path aliases   |
+| `npm start`            | Run the compiled app from `dist/`, loading `.env` if present |
+| `npm run typecheck`    | Type-check without emitting                                  |
+| `npm run format`       | Format with Prettier (imports organised automatically)       |
+| `npm run format:check` | Check formatting (as CI does)                                |
+| `npm test`             | Run the Vitest tests (`npm run test:watch` to watch)         |
 
 ## Project Structure
 
 ```
 src/
-  server.ts            # entry point: process signals, unhandled errors, graceful shutdown
-  app.ts               # express app: middleware, route loading, error handling, http/https
-  config.ts            # core configuration from environment variables (zod)
-  connectors/          # index.ts: registry of connectors started before listening and closed on shutdown
-    kafka/ redis/ hazelcast/ mssql/  # one folder per connector: code, env schema, tests
-  core/                # logger, request context, errors, connector lifecycle, route loading, middleware
-  http/                # optional outbound HTTP: HttpClient, ServiceRequester
+  server.ts              # entry point: process signals, unhandled errors, graceful shutdown
+  app.ts                 # express app: middleware, route loading, error handling, http/https
+  config.ts              # core configuration from environment variables (zod)
+  core/                  # always present: framework plumbing
+    errors.ts            # HttpException and status codes
+    logger.ts            # winston, JSON lines with the request context
+    request-context.ts   # AsyncLocalStorage: requestId, traceId
+    lifecycle.ts         # Connector interface, init/close, statuses, monitor
+    routes.ts            # route auto-loader
+    middleware/          # request-logger, error, not-found
+    types/express.d.ts   # Express Request typings
+  connectors/            # optional, one folder per connector (code, env schema, tests)
+    index.ts             # registry: started before listening, closed on shutdown
+    kafka/ redis/ hazelcast/ mssql/
+  http/                  # optional outbound HTTP: HttpClient, ServiceRequester
   modules/
-    health/            # example module
-      routerV1.ts
-      controller.ts
-test/                  # Vitest tests
+    health/              # example module
+      health.routes.ts
+      health.controller.ts
+      health.test.ts
+    welcome/             # GET / on the API base path
+test/                    # cross-cutting tests and test helpers (support/)
 ```
 
 ## Modules & Routing
 
-Every file matching `ROUTES_GLOB` (default `modules/**/routerV1.{js,ts}`) is loaded automatically and its default export
+Every file matching `ROUTES_GLOB` (default `modules/**/*.routes.{js,ts}`) is loaded automatically and its default export
 (an Express `Router`) is mounted under `API_BASE_PATH` (default `/api/v1`). To add a module, create
-`src/modules/<name>/routerV1.ts`.
+`src/modules/<name>/<name>.routes.ts`, with its controller and tests (`<name>.test.ts`) next to it.
 
 ## Request Context & Logging
 

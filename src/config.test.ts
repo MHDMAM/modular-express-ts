@@ -55,7 +55,7 @@ describe('loadConfig', () => {
       appName: 'modular-express-ts',
       port: 3000,
       baseUrl: '/api/v1',
-      routesGlob: 'modules/**/routerV1.{js,ts}',
+      routesGlob: 'modules/**/*.routes.{js,ts}',
       statusPrefix: 'APP',
       logDir: 'logs',
       shutdownTimeoutMs: 10_000,

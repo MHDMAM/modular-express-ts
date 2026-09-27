@@ -66,7 +66,7 @@ const coreEnv = z
     PORT: envNumber(3000, { max: 65535 }),
     API_BASE_PATH: envString('/api/v1'),
     /** Router files auto-loaded from `src/` (`dist/` once built). */
-    ROUTES_GLOB: envString('modules/**/routerV1.{js,ts}'),
+    ROUTES_GLOB: envString('modules/**/*.routes.{js,ts}'),
     STATUS_PREFIX: envString('APP'),
     LOG_DIR: envString('logs'),
     SHUTDOWN_TIMEOUT_MS: envNumber(10_000),
