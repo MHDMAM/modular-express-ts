@@ -37,14 +37,18 @@ export class RedisConnector implements Connector, Cache {
     const client = newClient(this.config.url);
     // Without an error listener, a dropped connection would crash the process; the client reconnects on its own
     client.on('error', (error) => logger.error({ info: 'Redis client error', error }));
-    await client.connect();
+    // Kept before connecting so close() can stop a connection that is still retrying
     this.client = client;
+    await client.connect();
   }
 
   async close(): Promise<void> {
     const client = this.client;
     this.client = undefined;
-    if (client?.isOpen) await client.close();
+    if (!client?.isOpen) return;
+    // A ready client finishes pending commands; one still (re)connecting would wait forever, so it is destroyed
+    if (client.isReady) await client.close();
+    else client.destroy();
   }
 
   isReady(): boolean {

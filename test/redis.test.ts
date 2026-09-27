@@ -14,6 +14,9 @@ class FakeRedisClient extends EventEmitter {
   close = jest.fn(async () => {
     this.isOpen = this.isReady = false;
   });
+  destroy = jest.fn(() => {
+    this.isOpen = this.isReady = false;
+  });
   get = jest.fn(async (key: string) => this.store.get(key) ?? null);
   set = jest.fn(async (key: string, value: string, _options?: unknown) => {
     this.store.set(key, value);
@@ -124,6 +127,24 @@ describe('RedisConnector', () => {
 
     expect(connection.close).toHaveBeenCalledTimes(1);
     expect(redis.isReady()).toBe(false);
+  });
+
+  it('destroys a client that is still connecting instead of waiting for it', async () => {
+    const redis = new RedisConnector(baseConfig);
+    createClient.mockImplementationOnce(() => {
+      client = new FakeRedisClient();
+      client.connect.mockImplementation(() => {
+        client.isOpen = true; // open, retrying, never ready
+        return new Promise(() => undefined);
+      });
+      return client;
+    });
+
+    void redis.init();
+    await redis.close();
+
+    expect(client.destroy).toHaveBeenCalled();
+    expect(client.close).not.toHaveBeenCalled();
   });
 
   it('does not log cached values', async () => {
