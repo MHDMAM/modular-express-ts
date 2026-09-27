@@ -1,86 +1,97 @@
 import { SuccessPromiseObj } from '@lTypes/interfaces';
-import { AxiosRequestConfig, HttpClient } from '@utils/HttpClient';
+import { AxiosRequestConfig, CircuitState, HttpClient, HttpClientOptions, HttpResponse } from '@utils/HttpClient';
 import logger from '@utils/logger';
+import config from 'config';
 import _ from 'lodash';
 
-interface AxiosRequestConfigCustom extends AxiosRequestConfig {
+export interface ServiceRequesterOptions extends HttpClientOptions {
+  /** Prefix for relative request URLs. */
+  baseURL?: string;
+  /** Sent as the `x-source` header so the downstream service knows the caller. Defaults to `APP_NAME`. */
+  source?: string;
+  /** Per-attempt timeout; defaults to 5000ms. */
+  timeoutMs?: number;
+}
+
+export interface ServiceRequestConfig extends AxiosRequestConfig {
+  /** Request id to propagate (usually `req.ref`), sent as `x-request-id`. */
   ref?: string;
 }
+
+/**
+ * Client for one downstream service: adds `x-request-id` / `x-source` headers, a timeout, retries and a circuit
+ * breaker shared by every call (enabled by default), and logs each call without headers or bodies.
+ * Create one instance per downstream service and reuse it.
+ */
 export default class ServiceRequester {
-  private serviceName: string;
-  private timeout: number;
-  private source: string;
+  private readonly client: HttpClient;
+  private readonly source: string;
+  private readonly timeoutMs: number;
 
-  constructor(serviceName: string, source: string, timeout: number = 5000) {
-    this.serviceName = serviceName;
-    this.timeout = timeout;
-    this.source = source;
+  constructor(
+    private readonly serviceName: string,
+    private readonly options: ServiceRequesterOptions = {},
+  ) {
+    this.source = options.source ?? config.get('APP_NAME');
+    this.timeoutMs = options.timeoutMs ?? 5000;
+    this.client = new HttpClient({
+      retry: options.retry,
+      circuitBreaker: options.circuitBreaker === undefined ? {} : options.circuitBreaker,
+    });
   }
-  /**
-   * Utility to build Axios request options with common configurations
-   */
-  public buildRequestOptions(
-    options: AxiosRequestConfig,
-    ref: string,
-    additionalHeaders: Record<string, string> = {},
-  ): AxiosRequestConfig {
-    const timeout = this.timeout;
-    const commonHeaders = { 'x-source': this.source, 'x-request-id': ref };
 
-    return {
-      ...options,
-      timeout,
+  get circuitState(): CircuitState | undefined {
+    return this.client.circuitState;
+  }
+
+  async httpCall<T, H = Record<string, unknown>>({
+    ref,
+    ...request
+  }: ServiceRequestConfig): Promise<SuccessPromiseObj<T, H>> {
+    const requestConfig: AxiosRequestConfig = {
+      baseURL: this.options.baseURL,
+      ...request,
+      timeout: request.timeout ?? this.timeoutMs,
       headers: {
-        ...options.headers,
-        ...commonHeaders,
-        ...additionalHeaders, // Add any additional headers if needed
+        ...(request.headers as Record<string, string>),
+        'x-source': this.source,
+        ...(ref && { 'x-request-id': ref }),
       },
-    };
-  }
-
-  // Helper method to handle HTTP response
-  private async handleHttpResponse<T, H = any>(resp: SuccessPromiseObj): Promise<SuccessPromiseObj<T>> {
-    if (resp.success) {
-      return {
-        success: resp.success,
-        data: resp.data.data as T,
-        headers: _.omit(resp.data.headers, ['date', 'connection']) as H,
-      };
-    } else {
-      // Create and return a new SuccessPromiseObj with success: false
-      return {
-        success: false,
-        reason: {
-          status: resp.reason?.status,
-          message: resp.reason?.data || resp.reason?.data?.message,
-          code: resp.reason?.code,
-        },
-      };
-    }
-  }
-
-  // Reusable HTTP call method
-  async httpCall<T, H = any>(options: AxiosRequestConfigCustom): Promise<SuccessPromiseObj<T>> {
-    const httpClient = new HttpClient(); // HttpClient instance without config
-    const requestConfig: AxiosRequestConfigCustom = {
-      ...options,
-      timeout: options.timeout || this.timeout, // Ensure timeout is included
     };
 
     const start = process.hrtime.bigint();
-    const response: SuccessPromiseObj = await httpClient.send(requestConfig);
-    const end = process.hrtime.bigint();
-    const benchmark = Number((end - start) / 1000000n);
+    const response = await this.client.send(requestConfig);
+    const benchmark = Number((process.hrtime.bigint() - start) / 1000000n);
 
-    // Logging request/response details with benchmark timing
-    logger.info({
-      info: `${this.serviceName} Request/Response Details`,
-      request: _.omit(requestConfig, ['httpsAgent']),
-      response,
+    const result: HttpResponse | undefined = response.success ? response.data : response.reason;
+    // Headers and bodies are not logged: they may carry credentials or personal data
+    (response.success ? logger.info : logger.warn).call(logger, {
+      info: `${this.serviceName} request`,
+      ref,
+      method: (requestConfig.method ?? 'get').toUpperCase(),
+      url: `${requestConfig.baseURL ?? ''}${requestConfig.url ?? ''}`,
+      success: response.success,
+      status: result?.status,
+      code: result?.code,
       benchmark,
-      ref: options.ref,
     });
 
-    return await this.handleHttpResponse<T, H>(response); // Pass the response to handleHttpResponse
+    if (response.success) {
+      return {
+        success: true,
+        data: response.data.data as T,
+        headers: _.omit(response.data.headers, ['date', 'connection']) as H,
+      };
+    }
+    const reason: HttpResponse = response.reason;
+    return {
+      success: false,
+      reason: {
+        status: reason.status,
+        code: reason.code,
+        message: reason.data?.message ?? reason.message,
+        data: reason.data,
+      },
+    };
   }
 }

@@ -96,8 +96,24 @@ All are disabled by default.
 
 ## Outbound HTTP
 
-For outbound HTTP calls use `ServiceRequester` (`@utils/ServiceRequester`), which adds logging and timing on top of
-`HttpClient` (retries) with an optional `CircuitBreaker`.
+Create one `ServiceRequester` (`@utils/ServiceRequester`) per downstream service and reuse it:
+
+```ts
+const users = new ServiceRequester('users', { baseURL: 'https://users.internal' });
+const res = await users.httpCall<User>({ url: `/users/${id}`, ref: req.ref });
+if (!res.success) return next(HttpException.internal());
+```
+
+- Sends `x-request-id` (from `ref`) and `x-source` (`APP_NAME`), with a 5s timeout per attempt.
+- Retries 408/429/502/503/504 and network errors with exponential backoff and jitter, honouring `Retry-After`; only
+  idempotent methods (GET, HEAD, OPTIONS, PUT, DELETE) are retried unless configured otherwise.
+- A circuit breaker shared by all calls to the service opens after 5 consecutive failures (5xx, 408, 429 or no response)
+  and lets a trial request through after 30s; while open, calls fail fast with code `ECIRCUITOPEN`.
+- Logs method, URL, status and duration only, never headers or bodies.
+- Never throws: returns `{ success: true, data, headers }` or `{ success: false, reason: { status, code, message } }`.
+
+`HttpClient` (`@utils/HttpClient`) provides the same retry and circuit breaker options without the service conventions.
+Both are built on [cockatiel](https://github.com/connor4312/cockatiel) and axios.
 
 ## License
 
