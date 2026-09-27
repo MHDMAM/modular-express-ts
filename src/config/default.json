@@ -1,5 +1,5 @@
 {
-  "APP_NAME": "nodejs-boilerplate",
+  "APP_NAME": "modular-express-ts",
   "PORT": 3000,
   "baseUrl": "/api/v1",
   "routerExp": "modules/**/routerV1.{js,ts}",
@@ -32,9 +32,9 @@
   "kafka": {
     "enabled": false,
     "consumerEnabled": false,
-    "clientId": "nodejs-boilerplate",
+    "clientId": "modular-express-ts",
     "brokers": ["localhost:9092"],
-    "groupId": "nodejs-boilerplate-group",
+    "groupId": "modular-express-ts-group",
     "topicName": "events"
   },
   "hazelcast": {

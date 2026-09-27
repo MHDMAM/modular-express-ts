@@ -1,4 +1,4 @@
-# nodejs-boilerplate
+# modular-express-ts
 
 Express + TypeScript API boilerplate with auto-loaded modules, structured logging, a consistent response envelope and
 optional MSSQL, Kafka and Hazelcast connectors.
