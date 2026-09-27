@@ -28,7 +28,10 @@ class FakeRedisClient extends EventEmitter {
 
 let client: FakeRedisClient;
 const createClient = vi.fn((_options: unknown) => (client = new FakeRedisClient()));
-vi.mock('redis', () => ({ createClient: (options: unknown) => createClient(options) }));
+/** Set when the mocked client library is first imported. */
+const library = vi.hoisted(() => ({ loaded: false }));
+
+vi.mock('redis', () => (library.loaded = true) && { createClient: (options: unknown) => createClient(options) });
 
 const baseConfig: RedisConfig = { enabled: true, url: 'redis://cache:6379/1', keyPrefix: 'app:' };
 
@@ -41,6 +44,17 @@ async function connected(config: RedisConfig = baseConfig) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('RedisConnector', () => {
+  // Must run first: the library is imported once per test file
+  it('does not load the client library until init', async () => {
+    const connector = new RedisConnector(baseConfig);
+    expect(library.loaded).toBe(false);
+
+    await connector.init();
+
+    expect(library.loaded).toBe(true);
+    await connector.close();
+  });
+
   it('connects with the configured URL', async () => {
     const redis = await connected();
 
@@ -142,10 +156,22 @@ describe('RedisConnector', () => {
     });
 
     void redis.init();
+    await vi.waitFor(() => expect(client.connect).toHaveBeenCalled());
     await redis.close();
 
     expect(client.destroy).toHaveBeenCalled();
     expect(client.close).not.toHaveBeenCalled();
+  });
+
+  it('aborts an init still loading the client when closed, so no client is left connecting', async () => {
+    const redis = new RedisConnector(baseConfig);
+
+    const initializing = redis.init();
+    await redis.close();
+
+    await expect(initializing).rejects.toThrow('closed during init');
+    expect(createClient).not.toHaveBeenCalled();
+    expect(redis.isReady()).toBe(false);
   });
 
   it('does not log cached values', async () => {

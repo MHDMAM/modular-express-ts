@@ -1,7 +1,7 @@
 import { Cache, Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
 import config from 'config';
-import { createClient } from 'redis';
+import type { createClient } from 'redis';
 
 export interface RedisConfig {
   enabled: boolean;
@@ -11,8 +11,7 @@ export interface RedisConfig {
   keyPrefix: string;
 }
 
-const newClient = (url: string) => createClient({ url });
-export type RedisClient = ReturnType<typeof newClient>;
+export type RedisClient = ReturnType<typeof createClient<{}, {}, {}, 3, {}>>;
 
 /**
  * Redis (or Valkey) client with a JSON `Cache` on top; use `raw` for any other command.
@@ -26,6 +25,8 @@ export type RedisClient = ReturnType<typeof newClient>;
 export class RedisConnector implements Connector, Cache {
   readonly name = 'redis';
   private client?: RedisClient;
+  /** Incremented by init() and close(), so an init() still loading the client knows it was closed meanwhile. */
+  private generation = 0;
 
   constructor(private readonly config: RedisConfig) {}
 
@@ -34,7 +35,11 @@ export class RedisConnector implements Connector, Cache {
   }
 
   async init(): Promise<void> {
-    const client = newClient(this.config.url);
+    const generation = ++this.generation;
+    // Loaded here, not at import time: a disabled connector never loads the client
+    const { createClient: create } = await import('redis');
+    if (generation !== this.generation) throw new Error('Redis connector was closed during init');
+    const client: RedisClient = create({ url: this.config.url });
     // Without an error listener, a dropped connection would crash the process; the client reconnects on its own
     client.on('error', (error) => logger.error({ info: 'Redis client error', error }));
     // Kept before connecting so close() can stop a connection that is still retrying
@@ -43,6 +48,7 @@ export class RedisConnector implements Connector, Cache {
   }
 
   async close(): Promise<void> {
+    this.generation++;
     const client = this.client;
     this.client = undefined;
     if (!client?.isOpen) return;

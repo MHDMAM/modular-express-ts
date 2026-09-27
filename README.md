@@ -87,7 +87,8 @@ Each connector has a status, logged on every change: `disabled`, `starting` → 
 (running but not ready, e.g. reconnecting) and back to `running`, then `stopping` → `stopped`. A summary is logged once
 all connectors have started, and readiness is re-checked every `connectorMonitorIntervalMs` (default 10s).
 
-A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`).
+A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`). Connectors load
+their client library inside `init()`, so a disabled connector never loads it.
 
 ## Configuration
 

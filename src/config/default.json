@@ -60,7 +60,8 @@
           "initialBackoffMillis": 1000,
           "maxBackoffMillis": 60000,
           "multiplier": 2,
-          "jitter": 0.1
+          "jitter": 0.1,
+          "clusterConnectTimeoutMillis": 20000
         }
       }
     }

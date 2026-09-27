@@ -22,17 +22,24 @@ const fake = {
   },
 };
 
-vi.mock('@confluentinc/kafka-javascript', () => ({
-  KafkaJS: {
-    Kafka: vi.fn(function (kafkaConfig: any) {
-      fake.kafkaConfig = kafkaConfig;
-      return {
-        producer: () => fake.producer,
-        consumer: (consumerConfig: any) => ((fake.consumerConfig = consumerConfig), fake.consumer),
-      };
-    }),
-  },
-}));
+/** Set when the mocked client library is first imported. */
+const library = vi.hoisted(() => ({ loaded: false }));
+
+vi.mock(
+  '@confluentinc/kafka-javascript',
+  () =>
+    (library.loaded = true) && {
+      KafkaJS: {
+        Kafka: vi.fn(function (kafkaConfig: any) {
+          fake.kafkaConfig = kafkaConfig;
+          return {
+            producer: () => fake.producer,
+            consumer: (consumerConfig: any) => ((fake.consumerConfig = consumerConfig), fake.consumer),
+          };
+        }),
+      },
+    },
+);
 
 const baseConfig: KafkaConfig = {
   enabled: true,
@@ -65,6 +72,17 @@ beforeEach(() => {
 });
 
 describe('KafkaConnector', () => {
+  // Must run first: the library is imported once per test file
+  it('does not load the client library until init', async () => {
+    const connector = new KafkaConnector(baseConfig);
+    expect(library.loaded).toBe(false);
+
+    await connector.init();
+
+    expect(library.loaded).toBe(true);
+    await connector.close();
+  });
+
   it('reports enabled from config and is not ready before init', () => {
     const kafka = new KafkaConnector({ ...baseConfig, enabled: false });
 

@@ -1,4 +1,4 @@
-import { KafkaJS } from '@confluentinc/kafka-javascript';
+import type { KafkaJS } from '@confluentinc/kafka-javascript';
 import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
 import { contextFromHeaders, contextHeaders, runWithContext } from '@utils/requestContext';
@@ -79,7 +79,9 @@ export class KafkaConnector implements Connector {
 
   async init(): Promise<void> {
     const { clientId, brokers, ssl, sasl, groupId, fromBeginning } = this.config;
-    this.kafka = new KafkaJS.Kafka({ kafkaJS: { clientId, brokers, ssl, ...(sasl && { sasl }) } });
+    // Loaded here, not at import time: a disabled connector never loads the client (and its native library)
+    const { KafkaJS: client } = await import('@confluentinc/kafka-javascript');
+    this.kafka = new client.Kafka({ kafkaJS: { clientId, brokers, ssl, ...(sasl && { sasl }) } });
 
     this.producer = this.kafka.producer();
     await this.producer.connect();

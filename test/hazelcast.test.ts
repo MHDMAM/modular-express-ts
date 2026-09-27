@@ -1,6 +1,6 @@
 import { HazelcastConfig, HazelcastConnector } from '@libs/Hazelcast';
 import logger from '@utils/logger';
-import { LifecycleState } from 'hazelcast-client';
+import type { LifecycleState } from 'hazelcast-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** In-memory stand-in for a Hazelcast IMap, recording the TTL of each entry. */
@@ -29,15 +29,22 @@ const fake = {
   },
 };
 
-vi.mock('hazelcast-client', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  Client: {
-    newHazelcastClient: vi.fn(async (clientConfig: any) => {
-      fake.clientConfig = clientConfig;
-      return { getMap: fake.getMap, shutdown: fake.shutdown };
-    }),
-  },
-}));
+/** Set when the mocked client library is first imported. */
+const library = vi.hoisted(() => ({ loaded: false }));
+
+vi.mock(
+  'hazelcast-client',
+  async (importOriginal) =>
+    (library.loaded = true) && {
+      ...(await importOriginal<object>()),
+      Client: {
+        newHazelcastClient: vi.fn(async (clientConfig: any) => {
+          fake.clientConfig = clientConfig;
+          return { getMap: fake.getMap, shutdown: fake.shutdown };
+        }),
+      },
+    },
+);
 
 const baseConfig: HazelcastConfig = {
   enabled: true,
@@ -58,14 +65,25 @@ async function connected(config: HazelcastConfig = baseConfig) {
 }
 
 describe('HazelcastConnector', () => {
+  // Must run first: the library is imported once per test file
+  it('does not load the client library until init', async () => {
+    const connector = new HazelcastConnector(baseConfig);
+    expect(library.loaded).toBe(false);
+
+    await connector.init();
+
+    expect(library.loaded).toBe(true);
+    await connector.close();
+  });
+
   it('passes the client config through and adds its lifecycle listener, keeping user listeners', async () => {
     const userListener = vi.fn();
     await connected({ ...baseConfig, client: { ...baseConfig.client, lifecycleListeners: [userListener] } });
 
     expect(fake.clientConfig).toMatchObject(baseConfig.client);
     expect(fake.clientConfig.lifecycleListeners).toHaveLength(2);
-    fake.emit(LifecycleState.CONNECTED);
-    expect(userListener).toHaveBeenCalledWith(LifecycleState.CONNECTED);
+    fake.emit('CONNECTED' as LifecycleState);
+    expect(userListener).toHaveBeenCalledWith('CONNECTED' as LifecycleState);
   });
 
   it('follows the connection state for readiness', async () => {
@@ -75,10 +93,10 @@ describe('HazelcastConnector', () => {
     await hazelcast.init();
     expect(hazelcast.isReady()).toBe(true);
 
-    fake.emit(LifecycleState.DISCONNECTED);
+    fake.emit('DISCONNECTED' as LifecycleState);
     expect(hazelcast.isReady()).toBe(false);
 
-    fake.emit(LifecycleState.CONNECTED);
+    fake.emit('CONNECTED' as LifecycleState);
     expect(hazelcast.isReady()).toBe(true);
   });
 

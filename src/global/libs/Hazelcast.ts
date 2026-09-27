@@ -1,7 +1,7 @@
 import { Cache, Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
 import config from 'config';
-import { Client, ClientConfig, IMap, LifecycleState } from 'hazelcast-client';
+import type { Client, ClientConfig, IMap, LifecycleState } from 'hazelcast-client';
 
 export interface HazelcastConfig {
   enabled: boolean;
@@ -37,7 +37,9 @@ export class HazelcastConnector implements Connector, Cache {
       ...this.config.client,
       lifecycleListeners: [...(this.config.client.lifecycleListeners ?? []), (state) => this.onLifecycle(state)],
     };
-    this.client = await Client.newHazelcastClient(clientConfig);
+    // Loaded here, not at import time: a disabled connector never loads the client
+    const { Client: HazelcastClient } = await import('hazelcast-client');
+    this.client = await HazelcastClient.newHazelcastClient(clientConfig);
     this.connected = true;
   }
 
@@ -78,8 +80,8 @@ export class HazelcastConnector implements Connector, Cache {
   }
 
   private onLifecycle(state: LifecycleState) {
-    if (state === LifecycleState.CONNECTED) this.connected = true;
-    if ([LifecycleState.DISCONNECTED, LifecycleState.SHUTTING_DOWN, LifecycleState.SHUTDOWN].includes(state)) {
+    if (String(state) === 'CONNECTED') this.connected = true;
+    if (['DISCONNECTED', 'SHUTTING_DOWN', 'SHUTDOWN'].includes(String(state))) {
       this.connected = false;
     }
     logger.info({ info: 'Hazelcast lifecycle', state });
