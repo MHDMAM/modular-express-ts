@@ -1,7 +1,7 @@
 # modular-express-ts
 
 Express + TypeScript API boilerplate with auto-loaded modules, structured logging, a consistent response envelope and
-optional MSSQL, Kafka and Hazelcast connectors.
+optional MSSQL, Kafka, Hazelcast and Redis connectors.
 
 ## Quick Start
 
@@ -97,6 +97,9 @@ All are disabled by default.
 - **Hazelcast** (`@libs/Hazelcast`): set `hazelcast.enabled` to `true`; `hazelcast.client` is passed to the Hazelcast
   client as-is. Implements `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `hazelcast.mapName`, and
   `map(name)` returns any distributed map.
+- **Redis** (`@libs/Redis`, works with Valkey): set `redis.enabled` to `true` and `REDIS_URL`. Implements `Cache` with
+  JSON values, a TTL in milliseconds and an optional `redis.keyPrefix`; `redis.raw` is the node-redis client for other
+  commands.
 
 ## Outbound HTTP
 

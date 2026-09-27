@@ -62,5 +62,10 @@
         }
       }
     }
+  },
+  "redis": {
+    "enabled": false,
+    "url": "redis://localhost:6379",
+    "keyPrefix": ""
   }
 }

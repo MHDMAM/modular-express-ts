@@ -16,5 +16,8 @@
       "username": "KAFKA_SASL_USERNAME",
       "password": "KAFKA_SASL_PASSWORD"
     }
+  },
+  "redis": {
+    "url": "REDIS_URL"
   }
 }
