@@ -9,5 +9,24 @@
     "key": "ssl_cert/server.key",
     "cert": "ssl_cert/server.cer",
     "minVersion": "TLSv1.3"
+  },
+  "db": {
+    "user": "",
+    "password": "",
+    "server": "localhost",
+    "port": 1433,
+    "database": "",
+    "requestTimeout": 15000,
+    "connectionTimeout": 5000,
+    "options": {
+      "encrypt": true,
+      "trustServerCertificate": false,
+      "enableArithAbort": true
+    },
+    "pool": {
+      "max": 10,
+      "min": 0,
+      "idleTimeoutMillis": 30000
+    }
   }
 }

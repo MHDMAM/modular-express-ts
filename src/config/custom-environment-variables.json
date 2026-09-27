@@ -1,3 +1,9 @@
 {
-  "APP_NAME": "APP_NAME"
+  "APP_NAME": "APP_NAME",
+  "db": {
+    "user": "DB_USER",
+    "password": "DB_PASSWORD",
+    "server": "DB_SERVER",
+    "database": "DB_NAME"
+  }
 }
