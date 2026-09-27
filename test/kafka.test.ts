@@ -96,8 +96,20 @@ describe('KafkaConnector', () => {
     await kafka.init();
 
     expect(kafka.isReady()).toBe(true);
-    expect(fake.kafkaConfig).toEqual({ kafkaJS: { clientId: 'test-app', brokers: ['broker:9092'], ssl: false } });
+    expect(fake.kafkaConfig.kafkaJS).toMatchObject({ clientId: 'test-app', brokers: ['broker:9092'], ssl: false });
+    expect(fake.kafkaConfig.kafkaJS).not.toHaveProperty('sasl');
     expect(fake.calls).toEqual(['producer.connect']);
+  });
+
+  it("routes the client's own logs through the application logger", async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    const kafka = new KafkaConnector(baseConfig);
+    await kafka.init();
+
+    fake.kafkaConfig.kafkaJS.logger.namespace('producer').warn('broker down', { broker: 'b1' });
+
+    expect(warn).toHaveBeenCalledWith({ info: 'Kafka client: broker down', broker: 'b1' });
+    warn.mockRestore();
   });
 
   it('passes TLS and SASL settings to the client', async () => {

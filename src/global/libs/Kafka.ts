@@ -39,6 +39,21 @@ export interface OutgoingMessage {
 
 export type MessageHandler = (message: IncomingMessage) => Promise<void>;
 
+/** Routes the client's own log output through the application logger (it prints raw objects to the console otherwise). */
+function clientLogger(): KafkaJS.Logger {
+  const forward = (level: 'info' | 'warn' | 'error' | 'debug') => (message: string, extra?: object) =>
+    logger[level]({ info: `Kafka client: ${message}`, ...extra });
+  const adapter: KafkaJS.Logger = {
+    info: forward('info'),
+    warn: forward('warn'),
+    error: forward('error'),
+    debug: forward('debug'),
+    namespace: () => adapter,
+    setLogLevel: () => undefined,
+  };
+  return adapter;
+}
+
 function decodeHeaders(headers?: KafkaJS.IHeaders): Record<string, string> {
   const decoded: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers ?? {})) {
@@ -81,7 +96,9 @@ export class KafkaConnector implements Connector {
     const { clientId, brokers, ssl, sasl, groupId, fromBeginning } = this.config;
     // Loaded here, not at import time: a disabled connector never loads the client (and its native library)
     const { KafkaJS: client } = await import('@confluentinc/kafka-javascript');
-    this.kafka = new client.Kafka({ kafkaJS: { clientId, brokers, ssl, ...(sasl && { sasl }) } });
+    this.kafka = new client.Kafka({
+      kafkaJS: { clientId, brokers, ssl, ...(sasl && { sasl }), logger: clientLogger() },
+    });
 
     this.producer = this.kafka.producer();
     await this.producer.connect();
