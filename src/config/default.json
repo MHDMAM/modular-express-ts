@@ -7,6 +7,7 @@
   "log_dir": "logs",
   "shutdownTimeoutMs": 10000,
   "connectorInitTimeoutMs": 30000,
+  "connectorCloseTimeoutMs": 5000,
   "connectorMonitorIntervalMs": 10000,
   "ssl": {
     "key": "ssl_cert/server.key",

@@ -80,8 +80,8 @@ the call chain, can read it with `getRequestContext()` from `@utils/requestConte
 
 On startup every enabled connector in `src/connectors.ts` is initialised in order before the server listens; if one
 fails or is not ready within `connectorInitTimeoutMs` (default 30s), the connectors are closed and the process exits. On
-`SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order, and the process
-exits (forced after `shutdownTimeoutMs`, default 10s).
+`SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order (each within
+`connectorCloseTimeoutMs`, default 5s), and the process exits (forced after `shutdownTimeoutMs`, default 10s).
 
 Each connector has a status, logged on every change: `disabled`, `starting` → `running` or `failed`, `unavailable`
 (running but not ready, e.g. reconnecting) and back to `running`, then `stopping` → `stopped`. A summary is logged once

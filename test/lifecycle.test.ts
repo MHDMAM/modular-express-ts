@@ -138,6 +138,23 @@ describe('connector lifecycle', () => {
     expect(logged(error, 'Connector failed to close')).toEqual([expect.objectContaining({ connector: 'b' })]);
   });
 
+  it('does not wait forever for a connector that hangs while closing', async () => {
+    const a = fakeConnector('a');
+    const hanging = fakeConnector('hanging');
+    await initConnectors([a, hanging]);
+    hanging.close = vi.fn(() => new Promise<void>(() => undefined));
+
+    await closeConnectors([a, hanging], 50);
+
+    expect(a.close).toHaveBeenCalled();
+    expect(logged(error, 'Connector failed to close')).toEqual([
+      expect.objectContaining({
+        connector: 'hanging',
+        error: expect.objectContaining({ message: 'hanging did not close within 50ms' }),
+      }),
+    ]);
+  });
+
   it('reports a running connector that is not ready as unavailable, and logs when it goes and comes back', async () => {
     const a = fakeConnector('a');
     await initConnectors([a]);

@@ -76,14 +76,20 @@ export async function initConnectors(
   });
 }
 
-/** Closes every enabled connector in reverse order; failures are logged, never thrown. */
-export async function closeConnectors(connectors: Connector[] = registry): Promise<void> {
+/**
+ * Closes every enabled connector in reverse order. Each gets `timeoutMs` (a client closing a connection that never
+ * opened can hang); failures and timeouts are logged, never thrown.
+ */
+export async function closeConnectors(
+  connectors: Connector[] = registry,
+  timeoutMs: number = config.get('connectorCloseTimeoutMs'),
+): Promise<void> {
   stopConnectorMonitor();
   for (const connector of [...connectors].filter((c) => c.enabled).reverse()) {
     const failed = statuses.get(connector) === 'failed';
     if (!failed) setStatus(connector, 'stopping');
     try {
-      await connector.close();
+      await withTimeout(connector.close(), timeoutMs, `${connector.name} did not close within ${timeoutMs}ms`);
       if (!failed) setStatus(connector, 'stopped');
     } catch (error) {
       logger.error({ info: 'Connector failed to close', connector: connector.name, error });
