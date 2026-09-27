@@ -11,9 +11,9 @@
   "author": "MHD Abdulkarim Al Midani",
   "license": "MIT",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development NODE_CONFIG_DIR=src/config tsx watch src/server.ts",
-    "debug": "cross-env NODE_ENV=development NODE_CONFIG_DIR=src/config tsx watch --inspect src/server.ts",
-    "start": "node dist/server.js",
+    "dev": "cross-env NODE_ENV=development tsx watch --env-file-if-exists=.env src/server.ts",
+    "debug": "cross-env NODE_ENV=development tsx watch --inspect --env-file-if-exists=.env src/server.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "rimraf dist && tsc && tsc-alias",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write . --ignore-path .gitignore",
@@ -25,7 +25,6 @@
     "axios": "^1.20.0",
     "cockatiel": "^4.0.0",
     "compression": "^1.8.2",
-    "config": "^3.3.9",
     "express": "^5.2.1",
     "fast-safe-stringify": "^2.1.1",
     "hazelcast-client": "^5.7.0",
@@ -35,10 +34,10 @@
     "redis": "^6.2.1",
     "tslib": "^2.8.1",
     "winston": "^3.19.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston-daily-rotate-file": "^5.0.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/config": "0.0.41",
     "@types/express": "^5.0.6",
     "@types/lodash": "^4.17.25",
     "@types/mssql": "^12.3.0",

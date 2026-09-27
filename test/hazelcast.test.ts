@@ -1,4 +1,4 @@
-import { HazelcastConfig, HazelcastConnector } from '@libs/Hazelcast';
+import { HazelcastConfig, HazelcastConnector, hazelcastConfigFromEnv } from '@libs/Hazelcast';
 import logger from '@utils/logger';
 import type { LifecycleState } from 'hazelcast-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -163,5 +163,35 @@ describe('HazelcastConnector', () => {
 
     expect(JSON.stringify(spies.map((spy) => spy.mock.calls))).not.toContain('ada@example.com');
     spies.forEach((spy) => spy.mockRestore());
+  });
+});
+
+describe('hazelcastConfigFromEnv', () => {
+  it('builds the client config from the environment', () => {
+    const config = hazelcastConfigFromEnv({
+      HAZELCAST_ENABLED: 'true',
+      HAZELCAST_CLUSTER_NAME: 'prod',
+      HAZELCAST_MEMBERS: 'hz1:5701,hz2:5701',
+      HAZELCAST_MAP_NAME: 'sessions',
+      HAZELCAST_CONNECT_TIMEOUT_MS: '5000',
+    });
+
+    expect(config).toMatchObject({
+      enabled: true,
+      mapName: 'sessions',
+      client: {
+        clusterName: 'prod',
+        network: { clusterMembers: ['hz1:5701', 'hz2:5701'] },
+        connectionStrategy: { connectionRetry: { clusterConnectTimeoutMillis: 5000 } },
+      },
+    });
+  });
+
+  it('is disabled by default with a local cluster', () => {
+    expect(hazelcastConfigFromEnv({})).toMatchObject({
+      enabled: false,
+      mapName: 'default',
+      client: { clusterName: 'dev', network: { clusterMembers: ['127.0.0.1:5701'] } },
+    });
   });
 });

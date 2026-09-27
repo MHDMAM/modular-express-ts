@@ -1,4 +1,4 @@
-import config from 'config';
+import config from '@/config';
 import { UUID } from 'crypto';
 import { NextFunction, Request, Response, Router } from 'express';
 
@@ -28,7 +28,7 @@ declare global {
 let router = Router();
 
 router.route('/').get((req: Request, res: Response, next: NextFunction) => {
-  return res.send(`Welcome to ${config.get('APP_NAME')} API! version 1.0 - ${req.app.get('env')} `);
+  return res.send(`Welcome to ${config.appName} API! version 1.0 - ${config.env}`);
 });
 
 export default router;

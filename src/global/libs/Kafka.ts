@@ -1,8 +1,9 @@
+import config, { envBoolean, envList, envOptional, envString, parseEnv } from '@/config';
 import type { KafkaJS } from '@confluentinc/kafka-javascript';
 import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
 import { contextFromHeaders, contextHeaders, runWithContext } from '@utils/requestContext';
-import config from 'config';
+import { z } from 'zod';
 
 export interface KafkaConfig {
   enabled: boolean;
@@ -177,4 +178,48 @@ export class KafkaConnector implements Connector {
   }
 }
 
-export default new KafkaConnector(config.get<KafkaConfig>('kafka'));
+const kafkaEnv = z
+  .object({
+    KAFKA_ENABLED: envBoolean(false),
+    KAFKA_CLIENT_ID: envString(config.appName),
+    KAFKA_BROKERS: envList('localhost:9092'),
+    KAFKA_GROUP_ID: envString(`${config.appName}-group`),
+    KAFKA_FROM_BEGINNING: envBoolean(false),
+    KAFKA_SSL: envBoolean(false),
+    KAFKA_SASL_MECHANISM: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.enum(['plain', 'scram-sha-256', 'scram-sha-512']).optional(),
+    ),
+    KAFKA_SASL_USERNAME: envOptional(),
+    KAFKA_SASL_PASSWORD: envOptional(),
+    /** Unset: `.dlq`; empty: no dead-letter topic. */
+    KAFKA_DEAD_LETTER_SUFFIX: z.string().default('.dlq'),
+  })
+  .superRefine((env, ctx) => {
+    if (env.KAFKA_SASL_MECHANISM && (!env.KAFKA_SASL_USERNAME || !env.KAFKA_SASL_PASSWORD)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KAFKA_SASL_USERNAME'],
+        message: 'KAFKA_SASL_USERNAME and KAFKA_SASL_PASSWORD are required when KAFKA_SASL_MECHANISM is set',
+      });
+    }
+  })
+  .transform((env): KafkaConfig => ({
+    enabled: env.KAFKA_ENABLED,
+    clientId: env.KAFKA_CLIENT_ID,
+    brokers: env.KAFKA_BROKERS,
+    groupId: env.KAFKA_GROUP_ID,
+    fromBeginning: env.KAFKA_FROM_BEGINNING,
+    ssl: env.KAFKA_SSL,
+    sasl: env.KAFKA_SASL_MECHANISM
+      ? { mechanism: env.KAFKA_SASL_MECHANISM, username: env.KAFKA_SASL_USERNAME!, password: env.KAFKA_SASL_PASSWORD! }
+      : null,
+    deadLetterSuffix: env.KAFKA_DEAD_LETTER_SUFFIX,
+  }));
+
+/** Reads the `KAFKA_*` environment variables. */
+export function kafkaConfigFromEnv(env: Record<string, string | undefined> = process.env): KafkaConfig {
+  return parseEnv(kafkaEnv, env);
+}
+
+export default new KafkaConnector(kafkaConfigFromEnv());

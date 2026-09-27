@@ -1,3 +1,4 @@
+import config from '@/config';
 import {
   CIRCUIT_OPEN,
   CircuitState,
@@ -9,7 +10,6 @@ import {
 import logger from '@utils/logger';
 import { parseTraceparent, runWithContext } from '@utils/requestContext';
 import ServiceRequester from '@utils/ServiceRequester';
-import config from 'config';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -288,7 +288,7 @@ describe('ServiceRequester', () => {
 
     const res = await requester.httpCall({ url: '/' });
 
-    expect(server.requests[0].headers['x-source']).toBe(config.get('APP_NAME'));
+    expect(server.requests[0].headers['x-source']).toBe(config.appName);
     expect(res.headers).toMatchObject({ 'x-custom': 'yes' });
     expect(res.headers).not.toHaveProperty('date');
     expect(res.headers).not.toHaveProperty('connection');

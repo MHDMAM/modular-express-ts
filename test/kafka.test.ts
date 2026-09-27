@@ -1,4 +1,4 @@
-import { KafkaConfig, KafkaConnector } from '@libs/Kafka';
+import { KafkaConfig, KafkaConnector, kafkaConfigFromEnv } from '@libs/Kafka';
 import logger from '@utils/logger';
 import { getRequestContext, runWithContext } from '@utils/requestContext';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -302,5 +302,45 @@ describe('KafkaConnector', () => {
 
     expect(kafka.isReady()).toBe(false);
     expect(fake.calls.slice(-2)).toEqual(['consumer.disconnect', 'producer.disconnect']);
+  });
+});
+
+describe('kafkaConfigFromEnv', () => {
+  it('has defaults based on APP_NAME', () => {
+    expect(kafkaConfigFromEnv({})).toEqual({
+      enabled: false,
+      clientId: 'modular-express-ts',
+      brokers: ['localhost:9092'],
+      groupId: 'modular-express-ts-group',
+      fromBeginning: false,
+      ssl: false,
+      sasl: null,
+      deadLetterSuffix: '.dlq',
+    });
+  });
+
+  it('reads brokers, TLS and SASL', () => {
+    const config = kafkaConfigFromEnv({
+      KAFKA_ENABLED: 'true',
+      KAFKA_BROKERS: 'b1:9092, b2:9092',
+      KAFKA_SSL: 'true',
+      KAFKA_SASL_MECHANISM: 'scram-sha-512',
+      KAFKA_SASL_USERNAME: 'user',
+      KAFKA_SASL_PASSWORD: 'pass',
+      KAFKA_DEAD_LETTER_SUFFIX: '',
+    });
+
+    expect(config).toMatchObject({
+      enabled: true,
+      brokers: ['b1:9092', 'b2:9092'],
+      ssl: true,
+      sasl: { mechanism: 'scram-sha-512', username: 'user', password: 'pass' },
+      deadLetterSuffix: '',
+    });
+  });
+
+  it('requires credentials when a SASL mechanism is set, and rejects unknown mechanisms', () => {
+    expect(() => kafkaConfigFromEnv({ KAFKA_SASL_MECHANISM: 'plain' })).toThrow('KAFKA_SASL_USERNAME');
+    expect(() => kafkaConfigFromEnv({ KAFKA_SASL_MECHANISM: 'kerberos' })).toThrow('KAFKA_SASL_MECHANISM');
   });
 });

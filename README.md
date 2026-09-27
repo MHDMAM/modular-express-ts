@@ -7,7 +7,8 @@ optional MSSQL, Kafka, Hazelcast and Redis connectors.
 
 ```sh
 npm i
-npm run dev        # tsx watch mode, NODE_ENV=development
+cp .env.example .env   # optional: every variable has a default
+npm run dev            # tsx watch mode, NODE_ENV=development
 curl localhost:3000/api/v1/health
 ```
 
@@ -15,10 +16,10 @@ curl localhost:3000/api/v1/health
 
 | Script              | Description                                                       |
 | ------------------- | ----------------------------------------------------------------- |
-| `npm run dev`       | Start in watch mode (tsx)                                         |
+| `npm run dev`       | Start in watch mode (tsx), loading `.env` if present              |
 | `npm run debug`     | Same as `dev` with the Node inspector enabled                     |
 | `npm run build`     | Clean `dist/`, compile with `tsc` and rewrite path aliases        |
-| `npm start`         | Run the compiled app from `dist/`                                 |
+| `npm start`         | Run the compiled app from `dist/`, loading `.env` if present      |
 | `npm run typecheck` | Type-check without emitting                                       |
 | `npm run format`    | Format with Prettier (imports organised automatically)            |
 | `npm test`          | Run the Vitest tests from `test/` (`npm run test:watch` to watch) |
@@ -29,13 +30,13 @@ curl localhost:3000/api/v1/health
 src/
   server.ts            # entry point: process signals, unhandled errors, graceful shutdown
   app.ts               # express app: middleware, route loading, error handling, http/https
+  config.ts            # core configuration from environment variables (zod)
   connectors.ts        # connectors started before listening and closed on shutdown
-  config/              # `config` package files, selected by NODE_ENV
   global/
-    libs/              # connector singletons: Mssql, Kafka, Hazelcast
+    libs/              # connectors: Hazelcast, Kafka, Mssql, Redis
     middleware/        # requestLogger, error, notFound, base route + Express Request typings
-    types/             # shared types
-    utils/             # logger, HttpException, HttpClient, CircuitBreaker, ServiceRequester, ...
+    types/             # shared types (Connector, Cache, ...)
+    utils/             # logger, requestContext, lifecycle, HttpException, HttpClient, ServiceRequester, ...
   modules/
     health/            # example module
       routerV1.ts
@@ -45,8 +46,9 @@ test/                  # Vitest tests
 
 ## Modules & Routing
 
-Every file matching `routerExp` (default `modules/**/routerV1.{js,ts}`) is loaded automatically and mounted under
-`baseUrl` (default `/api/v1`). To add a module, create `src/modules/<name>/routerV1.ts` exporting an Express `Router`.
+Every file matching `ROUTES_GLOB` (default `modules/**/routerV1.{js,ts}`) is loaded automatically and its default export
+(an Express `Router`) is mounted under `API_BASE_PATH` (default `/api/v1`). To add a module, create
+`src/modules/<name>/routerV1.ts`.
 
 ## Request Context & Logging
 
@@ -63,13 +65,12 @@ the call chain, can read it with `getRequestContext()` from `@utils/requestConte
 
 ## Responses & Errors
 
-- Each request gets a `ref` taken from the `x-request-id` header (or a generated UUID), echoed back in the response
-  header.
+- The request id is echoed back in the `x-request-id` response header (and available as `req.ref`).
 - Object responses sent with `res.send()` get a `_metadata` block (request/response time, processing time) and a default
-  `status` of `<statusPrefix>1000` (e.g. `APP1000`).
+  `status` of `<STATUS_PREFIX>1000` (e.g. `APP1000`).
 - Throw or `next()` an `HttpException` (e.g. `HttpException.notFound()`) to return `{ status, message, ...data }` with
   the matching HTTP code. Unknown errors become a 500, invalid JSON bodies a 400.
-- Status codes follow `<statusPrefix><version><3-digit code>`; see `formatStatus` in
+- Status codes follow `<STATUS_PREFIX><version><3-digit code>`; see `formatStatus` in
   `src/global/utils/HttpException.ts`.
 
 ## Health & Lifecycle
@@ -79,46 +80,48 @@ the call chain, can read it with `getRequestContext()` from `@utils/requestConte
   status. Use it for load balancer or Kubernetes readiness probes.
 
 On startup every enabled connector in `src/connectors.ts` is initialised in order before the server listens; if one
-fails or is not ready within `connectorInitTimeoutMs` (default 30s), the connectors are closed and the process exits. On
-`SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order (each within
-`connectorCloseTimeoutMs`, default 5s), and the process exits (forced after `shutdownTimeoutMs`, default 10s).
+fails or is not ready within `CONNECTOR_INIT_TIMEOUT_MS` (default 30s), the connectors are closed and the process exits.
+On `SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order (each within
+`CONNECTOR_CLOSE_TIMEOUT_MS`, default 5s), and the process exits (forced after `SHUTDOWN_TIMEOUT_MS`, default 10s).
 
 Each connector has a status, logged on every change: `disabled`, `starting` → `running` or `failed`, `unavailable`
 (running but not ready, e.g. reconnecting) and back to `running`, then `stopping` → `stopped`. A summary is logged once
-all connectors have started, and readiness is re-checked every `connectorMonitorIntervalMs` (default 10s).
+all connectors have started, and readiness is re-checked every `CONNECTOR_MONITOR_INTERVAL_MS` (default 10s).
 
 A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`). Connectors load
 their client library inside `init()`, so a disabled connector never loads it.
 
 ## Configuration
 
-Uses [`config`](https://github.com/node-config/node-config): `default.json` is always loaded, then `<NODE_ENV>.json`
-overrides it. Secrets must not go in these files, supply them through environment variables mapped in
-`custom-environment-variables.json` (`DB_USER`, `DB_PASSWORD`, `DB_SERVER`, `DB_NAME`, `APP_NAME`).
+All configuration comes from environment variables, validated with [zod](https://zod.dev) at startup: an invalid value
+stops the app with a message listing every invalid variable. `.env.example` documents every variable with its default;
+`npm run dev` and `npm start` load `.env` when present (Node's `--env-file-if-exists`). In deployments, set real
+environment variables (e.g. Kubernetes ConfigMaps and Secrets) and never commit `.env`.
 
-| Env var    | Description                                                                                 |
-| ---------- | ------------------------------------------------------------------------------------------- |
-| `NODE_ENV` | Selects the config file (`development`, `production`, `test`, ...)                          |
-| `PORT`     | Overrides the `PORT` config value                                                           |
-| `SSL`      | `true`/`1` serves HTTPS using the `ssl.key` / `ssl.cert` config paths (relative to `dist/`) |
+Core settings are in `src/config.ts` (`import config from '@/config'` gives typed values). Each connector reads its own
+variables next to its code (`KAFKA_*` in `@libs/Kafka`, ...), so removing a connector removes its configuration.
+
+Booleans accept `true`/`false`, `1`/`0` or `yes`/`no`; lists are comma-separated; unset or empty variables use the
+default.
 
 ## Optional Connectors
 
 All are disabled by default.
 
-- **MSSQL** (`@libs/Mssql`): set `db.enabled` to `true`. `executeQuery(query, inputs, tables)` runs parameterised
-  queries (`@name`); inputs named after a column of `tables` get that column's SQL type and length from the schema
-  loaded on startup. `executeSP(procedure, inputs, outputs)` runs stored procedures. Parameter values are never logged.
-- **Kafka** (`@libs/Kafka`, Confluent's official client): set `kafka.enabled` to `true`. Register topic handlers with
-  `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if handlers exist) and publish with
-  `await kafka.send(topic, { key, value })`. A handler that throws sends the message to `<topic>.dlq`
-  (`kafka.deadLetterSuffix`, empty to retry instead). Set `kafka.ssl` and `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`,
-  `KAFKA_SASL_PASSWORD` for managed Kafka; `KAFKA_BROKERS` takes a JSON array.
-- **Hazelcast** (`@libs/Hazelcast`): set `hazelcast.enabled` to `true`; `hazelcast.client` is passed to the Hazelcast
-  client as-is. Implements `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `hazelcast.mapName`, and
-  `map(name)` returns any distributed map.
-- **Redis** (`@libs/Redis`, works with Valkey): set `redis.enabled` to `true` and `REDIS_URL`. Implements `Cache` with
-  JSON values, a TTL in milliseconds and an optional `redis.keyPrefix`; `redis.raw` is the node-redis client for other
+- **MSSQL** (`@libs/Mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`. `executeQuery(query, inputs, tables)` runs
+  parameterised queries (`@name`); inputs named after a column of `tables` get that column's SQL type and length from
+  the schema loaded on startup. `executeSP(procedure, inputs, outputs)` runs stored procedures. Parameter values are
+  never logged.
+- **Kafka** (`@libs/Kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`. Register topic
+  handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if handlers exist) and
+  publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to `<topic>.dlq`
+  (`KAFKA_DEAD_LETTER_SUFFIX`, empty to retry instead). Set `KAFKA_SSL` and `KAFKA_SASL_MECHANISM`,
+  `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` for managed Kafka.
+- **Hazelcast** (`@libs/Hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements `Cache` (`get`,
+  `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME`, and `map(name)` returns any distributed map.
+  Other client options can be added in `hazelcastConfigFromEnv`.
+- **Redis** (`@libs/Redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache` with JSON
+  values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for other
   commands.
 
 ## Outbound HTTP
@@ -127,7 +130,7 @@ Create one `ServiceRequester` (`@utils/ServiceRequester`) per downstream service
 
 ```ts
 const users = new ServiceRequester('users', { baseURL: 'https://users.internal' });
-const res = await users.httpCall<User>({ url: `/users/${id}`, ref: req.ref });
+const res = await users.httpCall<User>({ url: `/users/${id}` });
 if (!res.success) return next(HttpException.internal());
 ```
 

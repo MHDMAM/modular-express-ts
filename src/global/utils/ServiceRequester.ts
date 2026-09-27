@@ -1,8 +1,8 @@
+import config from '@/config';
 import { SuccessPromiseObj } from '@lTypes/interfaces';
 import { AxiosRequestConfig, CircuitState, HttpClient, HttpClientOptions, HttpResponse } from '@utils/HttpClient';
 import logger from '@utils/logger';
 import { contextHeaders } from '@utils/requestContext';
-import config from 'config';
 import _ from 'lodash';
 
 export interface ServiceRequesterOptions extends HttpClientOptions {
@@ -34,7 +34,7 @@ export default class ServiceRequester {
     private readonly serviceName: string,
     private readonly options: ServiceRequesterOptions = {},
   ) {
-    this.source = options.source ?? config.get('APP_NAME');
+    this.source = options.source ?? config.appName;
     this.timeoutMs = options.timeoutMs ?? 5000;
     this.client = new HttpClient({
       retry: options.retry,

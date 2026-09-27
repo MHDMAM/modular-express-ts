@@ -1,8 +1,5 @@
 import logger from '@utils/logger';
-import { join, resolve } from 'path';
 import App from './app';
-process.env['NODE_CONFIG_DIR'] = join(__dirname, 'config');
-process.env.NODE_PATH = resolve(__dirname);
 
 let app: App | undefined;
 App.create()

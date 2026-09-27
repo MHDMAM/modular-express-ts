@@ -1,7 +1,8 @@
+import { envBoolean, envString, parseEnv } from '@/config';
 import { Cache, Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
-import config from 'config';
 import type { createClient } from 'redis';
+import { z } from 'zod';
 
 export interface RedisConfig {
   enabled: boolean;
@@ -87,4 +88,23 @@ export class RedisConnector implements Connector, Cache {
   }
 }
 
-export default new RedisConnector(config.get<RedisConfig>('redis'));
+const redisEnv = z
+  .object({
+    REDIS_ENABLED: envBoolean(false),
+    REDIS_URL: envString('redis://localhost:6379').pipe(
+      z.string().regex(/^rediss?:\/\//, 'must start with redis:// or rediss://'),
+    ),
+    REDIS_KEY_PREFIX: z.string().default(''),
+  })
+  .transform((env): RedisConfig => ({
+    enabled: env.REDIS_ENABLED,
+    url: env.REDIS_URL,
+    keyPrefix: env.REDIS_KEY_PREFIX,
+  }));
+
+/** Reads the `REDIS_*` environment variables. */
+export function redisConfigFromEnv(env: Record<string, string | undefined> = process.env): RedisConfig {
+  return parseEnv(redisEnv, env);
+}
+
+export default new RedisConnector(redisConfigFromEnv());

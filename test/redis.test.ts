@@ -1,4 +1,4 @@
-import { RedisConfig, RedisConnector } from '@libs/Redis';
+import { RedisConfig, RedisConnector, redisConfigFromEnv } from '@libs/Redis';
 import logger from '@utils/logger';
 import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -183,5 +183,22 @@ describe('RedisConnector', () => {
 
     expect(JSON.stringify(spies.map((spy) => spy.mock.calls))).not.toContain('ada@example.com');
     spies.forEach((spy) => spy.mockRestore());
+  });
+});
+
+describe('redisConfigFromEnv', () => {
+  it('has defaults and reads the environment', () => {
+    expect(redisConfigFromEnv({})).toEqual({ enabled: false, url: 'redis://localhost:6379', keyPrefix: '' });
+    expect(
+      redisConfigFromEnv({
+        REDIS_ENABLED: '1',
+        REDIS_URL: 'rediss://user:pass@cache:6380/2',
+        REDIS_KEY_PREFIX: 'app:',
+      }),
+    ).toEqual({ enabled: true, url: 'rediss://user:pass@cache:6380/2', keyPrefix: 'app:' });
+  });
+
+  it('rejects URLs that are not redis:// or rediss://', () => {
+    expect(() => redisConfigFromEnv({ REDIS_URL: 'http://cache:6379' })).toThrow('REDIS_URL');
   });
 });

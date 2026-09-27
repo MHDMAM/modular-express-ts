@@ -1,7 +1,8 @@
+import { envBoolean, envList, envNumber, envString, parseEnv } from '@/config';
 import { Cache, Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
-import config from 'config';
-import type { Client, ClientConfig, IMap, LifecycleState } from 'hazelcast-client';
+import type { Client, ClientConfig, IMap, LifecycleState, ReconnectMode } from 'hazelcast-client';
+import { z } from 'zod';
 
 export interface HazelcastConfig {
   enabled: boolean;
@@ -88,4 +89,43 @@ export class HazelcastConnector implements Connector, Cache {
   }
 }
 
-export default new HazelcastConnector(config.get<HazelcastConfig>('hazelcast'));
+const hazelcastEnv = z
+  .object({
+    HAZELCAST_ENABLED: envBoolean(false),
+    HAZELCAST_CLUSTER_NAME: envString('dev'),
+    HAZELCAST_MEMBERS: envList('127.0.0.1:5701'),
+    HAZELCAST_MAP_NAME: envString('default'),
+    /** The client stops retrying an unreachable cluster after this long (it would retry forever otherwise). */
+    HAZELCAST_CONNECT_TIMEOUT_MS: envNumber(20_000, { min: 1 }),
+  })
+  .transform((env): HazelcastConfig => ({
+    enabled: env.HAZELCAST_ENABLED,
+    mapName: env.HAZELCAST_MAP_NAME,
+    client: {
+      clusterName: env.HAZELCAST_CLUSTER_NAME,
+      network: {
+        clusterMembers: env.HAZELCAST_MEMBERS,
+        smartRouting: true,
+        redoOperation: true,
+        connectionTimeout: 6000,
+      },
+      connectionStrategy: {
+        asyncStart: false,
+        reconnectMode: 'ASYNC' as ReconnectMode,
+        connectionRetry: {
+          initialBackoffMillis: 1000,
+          maxBackoffMillis: 60000,
+          multiplier: 2,
+          jitter: 0.1,
+          clusterConnectTimeoutMillis: env.HAZELCAST_CONNECT_TIMEOUT_MS,
+        },
+      },
+    },
+  }));
+
+/** Reads the `HAZELCAST_*` environment variables; extend `client` in code for other client options. */
+export function hazelcastConfigFromEnv(env: Record<string, string | undefined> = process.env): HazelcastConfig {
+  return parseEnv(hazelcastEnv, env);
+}
+
+export default new HazelcastConnector(hazelcastConfigFromEnv());

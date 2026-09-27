@@ -1,12 +1,11 @@
+import config from '@/config';
 import errorMiddleware from '@middleware/error';
 import checkAvailability from '@middleware/express';
 import notFoundMiddleware from '@middleware/notFound';
 import { requestLogger } from '@middleware/requestLogger';
-import envHandler from '@utils/envHandler';
 import { closeConnectors, initConnectors, startConnectorMonitor } from '@utils/lifecycle';
 import logger from '@utils/logger';
 import compression from 'compression';
-import config from 'config';
 import express from 'express';
 import { readFileSync } from 'fs';
 import helmet from 'helmet';
@@ -34,11 +33,9 @@ class App {
 
   private constructor() {
     this.app = express();
-    this.env = process.env['NODE_ENV'];
-    this.port = envHandler.getPort();
-    this.ssl = envHandler.getSSL();
-    process.env['NODE_CONFIG_DIR'] = join(__dirname, 'config');
-    process.env.NODE_PATH = resolve(__dirname);
+    this.env = config.env;
+    this.port = config.port;
+    this.ssl = config.ssl.enabled;
 
     this.initializeMiddleware();
   }
@@ -46,9 +43,9 @@ class App {
   public listen() {
     if (this.ssl) {
       const credentials: https.ServerOptions = {
-        key: readFileSync(resolve(__dirname, config.get('ssl.key'))),
-        cert: readFileSync(resolve(__dirname, config.get('ssl.cert'))),
-        minVersion: config.get('ssl.minVersion'),
+        key: readFileSync(resolve(config.ssl.keyPath)),
+        cert: readFileSync(resolve(config.ssl.certPath)),
+        minVersion: config.ssl.minVersion,
       };
 
       this.server = https.createServer(credentials, this.app).listen(this.port, () => {
@@ -90,9 +87,9 @@ class App {
 
   private async initializeRoutes() {
     this.app.use(requestLogger);
-    const routers = await loadRouters([join(__dirname, config.get('routerExp'))]);
-    if (routers.length > 0) this.app.use(config.get('baseUrl'), routers);
-    this.app.use(config.get('baseUrl'), checkAvailability);
+    const routers = await loadRouters([join(__dirname, config.routesGlob)]);
+    if (routers.length > 0) this.app.use(config.baseUrl, routers);
+    this.app.use(config.baseUrl, checkAvailability);
 
     this.app.use(notFoundMiddleware);
   }
@@ -119,7 +116,7 @@ class App {
     this.shuttingDown = true;
     logger.info({ info: `Closing Server Due to (${reason})!!` });
 
-    const timeoutMs: number = config.get('shutdownTimeoutMs');
+    const timeoutMs = config.shutdownTimeoutMs;
     const forceExit = setTimeout(() => {
       logger.error({ info: `Shutdown took longer than ${timeoutMs}ms, forcing exit` });
       process.exit(1);

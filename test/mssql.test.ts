@@ -1,4 +1,4 @@
-import { MssqlConfig, MssqlConnector } from '@libs/Mssql';
+import { MssqlConfig, MssqlConnector, mssqlConfigFromEnv } from '@libs/Mssql';
 import logger from '@utils/logger';
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -187,5 +187,37 @@ describe('MssqlConnector', () => {
 
     await expect(initializing).rejects.toThrow('closed during init');
     expect(FakePool.last).toBe(pools);
+  });
+});
+
+describe('mssqlConfigFromEnv', () => {
+  it('maps the environment to the pool config', () => {
+    const config = mssqlConfigFromEnv({
+      MSSQL_ENABLED: 'true',
+      MSSQL_SERVER: 'sql.internal',
+      MSSQL_PORT: '14330',
+      MSSQL_DATABASE: 'orders',
+      MSSQL_USER: 'app',
+      MSSQL_PASSWORD: 'secret',
+      MSSQL_ENCRYPT: 'false',
+      MSSQL_TRUST_SERVER_CERTIFICATE: 'true',
+      MSSQL_POOL_MAX: '20',
+    });
+
+    expect(config).toMatchObject({
+      enabled: true,
+      server: 'sql.internal',
+      port: 14330,
+      database: 'orders',
+      user: 'app',
+      password: 'secret',
+      options: { encrypt: false, trustServerCertificate: true },
+      pool: { min: 0, max: 20 },
+    });
+  });
+
+  it('requires a database when enabled', () => {
+    expect(() => mssqlConfigFromEnv({ MSSQL_ENABLED: 'true' })).toThrow('MSSQL_DATABASE');
+    expect(mssqlConfigFromEnv({}).enabled).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
+import config from '@/config';
 import registry from '@/connectors';
 import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
-import config from 'config';
 
 /**
  * - `disabled`: turned off in config, never initialised
@@ -50,7 +50,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
  */
 export async function initConnectors(
   connectors: Connector[] = registry,
-  timeoutMs: number = config.get('connectorInitTimeoutMs'),
+  timeoutMs: number = config.connectors.initTimeoutMs,
 ): Promise<void> {
   const started: Connector[] = [];
   for (const connector of connectors) {
@@ -82,7 +82,7 @@ export async function initConnectors(
  */
 export async function closeConnectors(
   connectors: Connector[] = registry,
-  timeoutMs: number = config.get('connectorCloseTimeoutMs'),
+  timeoutMs: number = config.connectors.closeTimeoutMs,
 ): Promise<void> {
   stopConnectorMonitor();
   for (const connector of [...connectors].filter((c) => c.enabled).reverse()) {
@@ -108,7 +108,7 @@ export function checkConnectors(connectors: Connector[] = registry): void {
 /** Starts checking connector readiness every `intervalMs`, logging changes. Does not keep the process alive. */
 export function startConnectorMonitor(
   connectors: Connector[] = registry,
-  intervalMs: number = config.get('connectorMonitorIntervalMs'),
+  intervalMs: number = config.connectors.monitorIntervalMs,
 ): void {
   stopConnectorMonitor();
   monitor = setInterval(() => checkConnectors(connectors), intervalMs).unref();

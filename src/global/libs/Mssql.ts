@@ -1,7 +1,8 @@
+import { envBoolean, envNumber, envOptional, envString, parseEnv } from '@/config';
 import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
-import config from 'config';
 import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
+import { z } from 'zod';
 
 export interface MssqlConfig extends PoolConfig {
   enabled: boolean;
@@ -211,4 +212,46 @@ export class MssqlConnector implements Connector {
   }
 }
 
-export default new MssqlConnector(config.get<MssqlConfig>('db'));
+const mssqlEnv = z
+  .object({
+    MSSQL_ENABLED: envBoolean(false),
+    MSSQL_SERVER: envString('localhost'),
+    MSSQL_PORT: envNumber(1433, { min: 1, max: 65535 }),
+    MSSQL_DATABASE: envOptional(),
+    MSSQL_USER: envOptional(),
+    MSSQL_PASSWORD: envOptional(),
+    MSSQL_ENCRYPT: envBoolean(true),
+    MSSQL_TRUST_SERVER_CERTIFICATE: envBoolean(false),
+    MSSQL_POOL_MIN: envNumber(0),
+    MSSQL_POOL_MAX: envNumber(10, { min: 1 }),
+    MSSQL_REQUEST_TIMEOUT_MS: envNumber(15_000, { min: 1 }),
+    MSSQL_CONNECTION_TIMEOUT_MS: envNumber(5_000, { min: 1 }),
+  })
+  .superRefine((env, ctx) => {
+    if (env.MSSQL_ENABLED && !env.MSSQL_DATABASE) {
+      ctx.addIssue({ code: 'custom', path: ['MSSQL_DATABASE'], message: 'required when MSSQL_ENABLED is true' });
+    }
+  })
+  .transform((env): MssqlConfig => ({
+    enabled: env.MSSQL_ENABLED,
+    server: env.MSSQL_SERVER,
+    port: env.MSSQL_PORT,
+    database: env.MSSQL_DATABASE,
+    user: env.MSSQL_USER,
+    password: env.MSSQL_PASSWORD,
+    requestTimeout: env.MSSQL_REQUEST_TIMEOUT_MS,
+    connectionTimeout: env.MSSQL_CONNECTION_TIMEOUT_MS,
+    options: {
+      encrypt: env.MSSQL_ENCRYPT,
+      trustServerCertificate: env.MSSQL_TRUST_SERVER_CERTIFICATE,
+      enableArithAbort: true,
+    },
+    pool: { min: env.MSSQL_POOL_MIN, max: env.MSSQL_POOL_MAX, idleTimeoutMillis: 30_000 },
+  }));
+
+/** Reads the `MSSQL_*` environment variables. */
+export function mssqlConfigFromEnv(env: Record<string, string | undefined> = process.env): MssqlConfig {
+  return parseEnv(mssqlEnv, env);
+}
+
+export default new MssqlConnector(mssqlConfigFromEnv());

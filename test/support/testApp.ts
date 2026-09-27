@@ -1,4 +1,4 @@
-import config from 'config';
+import config from '@/config';
 import http from 'http';
 import { AddressInfo } from 'net';
 import App from '../../src/app';
@@ -15,7 +15,7 @@ export async function startTestApp(): Promise<TestApp> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
-    url: `http://127.0.0.1:${port}${config.get('baseUrl')}`,
+    url: `http://127.0.0.1:${port}${config.baseUrl}`,
     close: () =>
       new Promise((resolve) => {
         server.closeAllConnections();

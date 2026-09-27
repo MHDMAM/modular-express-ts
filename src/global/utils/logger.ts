@@ -1,12 +1,12 @@
+import config from '@/config';
 import { getRequestContext } from '@utils/requestContext';
-import config from 'config';
 import jsonStringify from 'fast-safe-stringify';
 import { resolve } from 'path';
 import winston from 'winston';
 import winstonDaily from 'winston-daily-rotate-file';
 
 // logs dir, relative paths resolve against the working directory
-const logDir: string = resolve(config.get('log_dir') as string);
+const logDir: string = resolve(config.logDir);
 
 /** Serializes errors with their message and stack (JSON.stringify would write `{}`), and bigints as strings. */
 function replacer(_key: string, value: unknown) {
