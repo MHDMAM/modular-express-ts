@@ -3,7 +3,7 @@ import checkAvailability from '@middleware/express';
 import notFoundMiddleware from '@middleware/notFound';
 import { requestLogger } from '@middleware/requestLogger';
 import envHandler from '@utils/envHandler';
-import { closeConnectors, initConnectors } from '@utils/lifecycle';
+import { closeConnectors, initConnectors, startConnectorMonitor } from '@utils/lifecycle';
 import logger from '@utils/logger';
 import compression from 'compression';
 import config from 'config';
@@ -105,6 +105,7 @@ class App {
   public async start() {
     try {
       await initConnectors();
+      startConnectorMonitor();
     } catch (error) {
       logger.error({ info: 'Startup aborted: a connector failed to initialise', error });
       process.exit(1);

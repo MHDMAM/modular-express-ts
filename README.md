@@ -75,13 +75,17 @@ the call chain, can read it with `getRequestContext()` from `@utils/requestConte
 ## Health & Lifecycle
 
 - `GET /health`: liveness, the process is up.
-- `GET /health/ready`: readiness, `503` until every enabled connector is ready. Use it for load balancer or Kubernetes
-  readiness probes.
+- `GET /health/ready`: readiness, `503` unless every enabled connector is `running`; the payload lists each connector's
+  status. Use it for load balancer or Kubernetes readiness probes.
 
 On startup every enabled connector in `src/connectors.ts` is initialised in order before the server listens; if one
 fails or is not ready within `connectorInitTimeoutMs` (default 30s), the connectors are closed and the process exits. On
 `SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order, and the process
 exits (forced after `shutdownTimeoutMs`, default 10s).
+
+Each connector has a status, logged on every change: `disabled`, `starting` → `running` or `failed`, `unavailable`
+(running but not ready, e.g. reconnecting) and back to `running`, then `stopping` → `stopped`. A summary is logged once
+all connectors have started, and readiness is re-checked every `connectorMonitorIntervalMs` (default 10s).
 
 A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`).
 

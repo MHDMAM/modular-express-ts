@@ -11,7 +11,7 @@ export default class HealthController {
   /** Readiness: every enabled connector is ready (503 otherwise), e.g. for load balancer / Kubernetes probes. */
   static ready(req: Request, res: Response, next: NextFunction) {
     const connectors = connectorStatus();
-    const ready = Object.values(connectors).every(Boolean);
+    const ready = Object.values(connectors).every((status) => status === 'running');
     if (!ready) return next(HttpException.serviceUnavailable('Not Ready', { payload: { ready, connectors } }));
     return res.send({ payload: { ready, connectors } });
   }

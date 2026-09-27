@@ -1,14 +1,25 @@
 import registry from '@/connectors';
 import { Connector } from '@lTypes/connector';
 import { formatStatus } from '@utils/HttpException';
-import { closeConnectors, connectorStatus, initConnectors } from '@utils/lifecycle';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  checkConnectors,
+  closeConnectors,
+  connectorStatus,
+  getConnectorStatus,
+  initConnectors,
+  startConnectorMonitor,
+  stopConnectorMonitor,
+} from '@utils/lifecycle';
+import logger from '@utils/logger';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTestApp, TestApp } from './support/testApp';
+
+type FakeConnector = Connector & { calls: string[]; setReady(ready: boolean): void };
 
 function fakeConnector(name: string, opts: { enabled?: boolean; failInit?: boolean; failClose?: boolean } = {}) {
   let ready = false;
   const calls: string[] = [];
-  const connector: Connector & { calls: string[] } = {
+  const connector: FakeConnector = {
     name,
     enabled: opts.enabled ?? true,
     calls,
@@ -23,36 +34,81 @@ function fakeConnector(name: string, opts: { enabled?: boolean; failInit?: boole
       if (opts.failClose) throw new Error(`${name} close failed`);
     }),
     isReady: () => ready,
+    setReady: (value) => (ready = value),
   };
   return connector;
 }
 
+/** Records the order of init/close calls across connectors. */
+function trackOrder(...connectors: FakeConnector[]) {
+  const order: string[] = [];
+  connectors.forEach((c) => (c.calls.push = (...items: string[]) => order.push(...items)));
+  return order;
+}
+
+/** Log entries (the object passed to the logger) for a given `info` message. */
+function logged(spy: ReturnType<typeof vi.spyOn>, info: string) {
+  return spy.mock.calls.map(([entry]) => entry as Record<string, unknown>).filter((entry) => entry?.info === info);
+}
+
 describe('connector lifecycle', () => {
-  it('initialises enabled connectors in order and skips disabled ones', async () => {
+  let info: ReturnType<typeof vi.spyOn>;
+  let warn: ReturnType<typeof vi.spyOn>;
+  let error: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    info = vi.spyOn(logger, 'info');
+    warn = vi.spyOn(logger, 'warn');
+    error = vi.spyOn(logger, 'error');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    stopConnectorMonitor();
+  });
+
+  it('initialises enabled connectors in order and reports disabled ones', async () => {
     const a = fakeConnector('a');
     const b = fakeConnector('b', { enabled: false });
     const c = fakeConnector('c');
 
     await initConnectors([a, b, c]);
 
-    expect(a.init).toHaveBeenCalled();
     expect(b.init).not.toHaveBeenCalled();
-    expect(c.init).toHaveBeenCalled();
-    expect(connectorStatus([a, b, c])).toEqual({ a: true, c: true });
+    expect(connectorStatus([a, b, c])).toEqual({ a: 'running', c: 'running' });
+    expect(getConnectorStatus(b)).toBe('disabled');
   });
 
-  it('closes the failed and already started connectors and rethrows when one fails to initialise', async () => {
-    const order: string[] = [];
+  it('logs every status change and a startup summary', async () => {
+    const a = fakeConnector('a');
+    const b = fakeConnector('b', { enabled: false });
+
+    await initConnectors([a, b]);
+
+    expect(logged(info, 'Connector starting')).toEqual([expect.objectContaining({ connector: 'a' })]);
+    expect(logged(info, 'Connector running')).toEqual([
+      expect.objectContaining({ connector: 'a', previous: 'starting', durationMs: expect.any(Number) }),
+    ]);
+    expect(logged(info, 'Connector disabled')).toEqual([expect.objectContaining({ connector: 'b' })]);
+    expect(logged(info, 'Connectors started')).toEqual([
+      expect.objectContaining({ connectors: { a: 'running', b: 'disabled' } }),
+    ]);
+  });
+
+  it('marks a connector failed, closes it and the started ones, and rethrows', async () => {
     const a = fakeConnector('a');
     const b = fakeConnector('b');
     const c = fakeConnector('c', { failInit: true });
     const d = fakeConnector('d');
-    [a, b, c, d].forEach((x) => (x.calls.push = (...items: string[]) => order.push(...items)));
+    const order = trackOrder(a, b, c, d);
 
     await expect(initConnectors([a, b, c, d])).rejects.toThrow('c init failed');
 
     expect(order).toEqual(['init:a', 'init:b', 'init:c', 'close:c', 'close:b', 'close:a']);
     expect(d.init).not.toHaveBeenCalled();
+    expect(getConnectorStatus(c)).toBe('failed');
+    expect(getConnectorStatus(a)).toBe('stopped');
+    expect(logged(error, 'Connector failed')).toEqual([
+      expect.objectContaining({ connector: 'c', error: expect.any(Error) }),
+    ]);
   });
 
   it('times out a connector that never becomes ready and closes it to stop its retries', async () => {
@@ -64,18 +120,53 @@ describe('connector lifecycle', () => {
 
     expect(stuck.close).toHaveBeenCalled();
     expect(a.close).toHaveBeenCalled();
+    expect(getConnectorStatus(stuck)).toBe('failed');
   });
 
-  it('closes connectors in reverse order and keeps going when one fails', async () => {
-    const order: string[] = [];
+  it('closes connectors in reverse order, marks them stopped and keeps going when one fails', async () => {
     const a = fakeConnector('a');
     const b = fakeConnector('b', { failClose: true });
     const c = fakeConnector('c');
-    [a, b, c].forEach((x) => (x.calls.push = (...items: string[]) => order.push(...items)));
+    await initConnectors([a, b, c]);
+    const order = trackOrder(a, b, c);
 
     await expect(closeConnectors([a, b, c])).resolves.toBeUndefined();
 
     expect(order).toEqual(['close:c', 'close:b', 'close:a']);
+    expect(getConnectorStatus(a)).toBe('stopped');
+    expect(getConnectorStatus(c)).toBe('stopped');
+    expect(logged(error, 'Connector failed to close')).toEqual([expect.objectContaining({ connector: 'b' })]);
+  });
+
+  it('reports a running connector that is not ready as unavailable, and logs when it goes and comes back', async () => {
+    const a = fakeConnector('a');
+    await initConnectors([a]);
+
+    a.setReady(false);
+    expect(getConnectorStatus(a)).toBe('unavailable');
+    checkConnectors([a]);
+    expect(logged(warn, 'Connector unavailable')).toEqual([expect.objectContaining({ connector: 'a' })]);
+
+    a.setReady(true);
+    checkConnectors([a]);
+    expect(getConnectorStatus(a)).toBe('running');
+    expect(logged(info, 'Connector running')).toHaveLength(2);
+  });
+
+  it('checks connectors periodically once the monitor is started', async () => {
+    vi.useFakeTimers();
+    try {
+      const a = fakeConnector('a');
+      await initConnectors([a]);
+      startConnectorMonitor([a], 1_000);
+
+      a.setReady(false);
+      vi.advanceTimersByTime(1_000);
+
+      expect(logged(warn, 'Connector unavailable')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -92,26 +183,29 @@ describe('GET /health/ready', () => {
     registry.length = 0;
   });
 
-  it('is ready when every enabled connector is ready', async () => {
+  it('is ready when every enabled connector is running', async () => {
     const connector = fakeConnector('cache');
-    await connector.init();
+    await initConnectors([connector]);
     registry.push(connector, fakeConnector('disabled', { enabled: false }));
 
     const res = await fetch(`${app.url}/health/ready`);
     const body: any = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.payload).toEqual({ ready: true, connectors: { cache: true } });
+    expect(body.payload).toEqual({ ready: true, connectors: { cache: 'running' } });
   });
 
-  it('returns 503 when a connector is not ready', async () => {
-    registry.push(fakeConnector('broker'));
+  it('returns 503 with the status of each connector otherwise', async () => {
+    const down = fakeConnector('cache');
+    await initConnectors([down]);
+    down.setReady(false);
+    registry.push(down, fakeConnector('broker'));
 
     const res = await fetch(`${app.url}/health/ready`);
     const body: any = await res.json();
 
     expect(res.status).toBe(503);
     expect(body.status).toBe(formatStatus(6));
-    expect(body.payload).toEqual({ ready: false, connectors: { broker: false } });
+    expect(body.payload).toEqual({ ready: false, connectors: { cache: 'unavailable', broker: 'stopped' } });
   });
 });
