@@ -8,7 +8,7 @@
     "express",
     "typescript"
   ],
-  "author": "MHD Abdul (Karim)",
+  "author": "MHD Abdulkarim Al Midani",
   "license": "ISC",
   "scripts": {
     "dev": "nodemon",
