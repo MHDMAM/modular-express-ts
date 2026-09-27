@@ -4,6 +4,15 @@ import { NextFunction, Request, Response } from 'express';
 import _ from 'lodash';
 import { MetaData } from './request-logger';
 
+/** The error without the request body that body-parser attaches to parse errors, so it never reaches the logs. */
+function withoutRequestBody(err: Error): Error {
+  if (!Object.hasOwn(err, 'body')) return err;
+  const copy = new Error(err.message);
+  copy.name = err.name;
+  for (const key of Object.getOwnPropertyNames(err)) if (key !== 'body') (copy as any)[key] = (err as any)[key];
+  return copy;
+}
+
 const errorMiddleware = (err: Error, req: Request, res: Response, next: NextFunction) => {
   let error = err as HttpException;
   if (!req.benchmark) req.benchmark = 0n;
@@ -15,6 +24,13 @@ const errorMiddleware = (err: Error, req: Request, res: Response, next: NextFunc
     responseTime: req.responseTime,
     processingTime: benchmark,
   };
+
+  // Invalid JSON body (thrown by express.json()) or any error that is not an HttpException
+  if (!(err instanceof HttpException)) {
+    const isInvalidJson = err instanceof SyntaxError && (err as any).status === 400 && 'body' in err;
+    error = isInvalidJson ? HttpException.invalidPayload() : HttpException.internal();
+  }
+
   // Headers and bodies are not logged: they may carry credentials or personal data
   logger.error({
     info: 'Request failed',
@@ -23,14 +39,8 @@ const errorMiddleware = (err: Error, req: Request, res: Response, next: NextFunc
     httpStatus: error.httpCode,
     status: error.status,
     benchmark,
-    error,
+    error: withoutRequestBody(err),
   });
-
-  // Invalid JSON body (thrown by express.json()) or any error that is not an HttpException
-  if (!(err instanceof HttpException)) {
-    const isInvalidJson = err instanceof SyntaxError && (err as any).status === 400 && 'body' in err;
-    error = isInvalidJson ? HttpException.invalidPayload() : HttpException.internal();
-  }
 
   const response = _.assign({ status: error.status, message: error.message }, error.data);
   response._metadata = metadata;

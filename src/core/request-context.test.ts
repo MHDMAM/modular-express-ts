@@ -1,3 +1,4 @@
+import { formatStatus } from '@core/errors';
 import logger from '@core/logger';
 import {
   contextFromHeaders,
@@ -159,6 +160,23 @@ describe('HTTP requests', () => {
     const failed = logs.lines.find((line) => line.info === 'Request failed' && line.requestId === 'req-bad-json');
     expect(failed?.traceId).toBe(TRACE_ID);
     expect(body._metadata.processingTime).toBeLessThan(10_000);
+  });
+
+  it('logs a failed request with its response status, without the request body', async () => {
+    await fetch(`${app.url}/health`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-request-id': 'req-secret-body' },
+      body: '{"password":"hunter2"',
+    });
+
+    const failed = logs.lines.find((line) => line.info === 'Request failed' && line.requestId === 'req-secret-body');
+    expect(failed).toMatchObject({ httpStatus: 400, status: formatStatus(2) });
+    expect(failed?.error).toMatchObject({
+      name: 'SyntaxError',
+      message: expect.any(String),
+      stack: expect.any(String),
+    });
+    expect(JSON.stringify(logs.lines)).not.toContain('hunter2');
   });
 
   it('does not log request headers or bodies', async () => {
