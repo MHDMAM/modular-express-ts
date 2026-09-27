@@ -70,6 +70,8 @@ class App {
 
   private initializeMiddleware() {
     this.app.disable('x-powered-by'); // Disable the X-Powered-By header
+    // First, so every later middleware (including body parsing and its errors) runs inside the request context
+    this.app.use(requestLogger);
     this.app.use(
       helmet({
         hidePoweredBy: true, // Removes X-Powered-By
@@ -85,7 +87,6 @@ class App {
   }
 
   private async initializeRoutes() {
-    this.app.use(requestLogger);
     const routers = await loadRouters([join(__dirname, config.routesGlob)]);
     if (routers.length > 0) this.app.use(config.baseUrl, routers);
 

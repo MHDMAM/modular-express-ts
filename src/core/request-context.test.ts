@@ -146,6 +146,21 @@ describe('HTTP requests', () => {
     expect(requestLogs.every((line) => line.traceId === TRACE_ID)).toBe(true);
   });
 
+  it('has the context when the request fails before reaching a route (invalid JSON body)', async () => {
+    const res = await fetch(`${app.url}/health`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-request-id': 'req-bad-json', traceparent: TRACEPARENT },
+      body: '{invalid',
+    });
+    const body: any = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get('x-request-id')).toBe('req-bad-json');
+    const failed = logs.lines.find((line) => line.info === 'Request failed' && line.requestId === 'req-bad-json');
+    expect(failed?.traceId).toBe(TRACE_ID);
+    expect(body._metadata.processingTime).toBeLessThan(10_000);
+  });
+
   it('does not log request headers or bodies', async () => {
     await fetch(`${app.url}/health`, { headers: { authorization: 'Bearer secret-token' } });
 
