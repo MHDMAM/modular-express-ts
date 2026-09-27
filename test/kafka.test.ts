@@ -1,6 +1,6 @@
+import logger from '@core/logger';
+import { getRequestContext, runWithContext } from '@core/request-context';
 import { KafkaConfig, KafkaConnector, kafkaConfigFromEnv } from '@libs/Kafka';
-import logger from '@utils/logger';
-import { getRequestContext, runWithContext } from '@utils/requestContext';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Fake of the Confluent client's KafkaJS-compatible API: records calls and captures the eachMessage callback

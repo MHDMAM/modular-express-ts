@@ -1,6 +1,6 @@
 import { envBoolean, envString, parseEnv } from '@/config';
+import logger from '@core/logger';
 import { Cache, Connector } from '@lTypes/connector';
-import logger from '@utils/logger';
 import type { createClient } from 'redis';
 import { z } from 'zod';
 

@@ -1,8 +1,8 @@
 import config from '@/config';
+import logger from '@core/logger';
+import { contextHeaders } from '@core/request-context';
 import { SuccessPromiseObj } from '@lTypes/interfaces';
 import { AxiosRequestConfig, CircuitState, HttpClient, HttpClientOptions, HttpResponse } from '@utils/HttpClient';
-import logger from '@utils/logger';
-import { contextHeaders } from '@utils/requestContext';
 import _ from 'lodash';
 
 export interface ServiceRequesterOptions extends HttpClientOptions {

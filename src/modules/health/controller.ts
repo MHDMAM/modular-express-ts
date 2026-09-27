@@ -1,5 +1,5 @@
-import { HttpException } from '@utils/HttpException';
-import { connectorStatus } from '@utils/lifecycle';
+import { HttpException } from '@core/errors';
+import { connectorStatus } from '@core/lifecycle';
 import { NextFunction, Request, Response } from 'express';
 
 export default class HealthController {

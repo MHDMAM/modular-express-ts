@@ -1,6 +1,5 @@
 import registry from '@/connectors';
-import { Connector } from '@lTypes/connector';
-import { formatStatus } from '@utils/HttpException';
+import { formatStatus } from '@core/errors';
 import {
   checkConnectors,
   closeConnectors,
@@ -9,10 +8,11 @@ import {
   initConnectors,
   startConnectorMonitor,
   stopConnectorMonitor,
-} from '@utils/lifecycle';
-import logger from '@utils/logger';
+} from '@core/lifecycle';
+import logger from '@core/logger';
+import { Connector } from '@lTypes/connector';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startTestApp, TestApp } from './support/testApp';
+import { startTestApp, TestApp } from '../../test/support/test-app';
 
 type FakeConnector = Connector & { calls: string[]; setReady(ready: boolean): void };
 

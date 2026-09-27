@@ -1,4 +1,6 @@
 import config from '@/config';
+import logger from '@core/logger';
+import { parseTraceparent, runWithContext } from '@core/request-context';
 import {
   CIRCUIT_OPEN,
   CircuitState,
@@ -7,8 +9,6 @@ import {
   retryAfterMs,
   type HttpResponse,
 } from '@utils/HttpClient';
-import logger from '@utils/logger';
-import { parseTraceparent, runWithContext } from '@utils/requestContext';
 import ServiceRequester from '@utils/ServiceRequester';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';

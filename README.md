@@ -33,11 +33,11 @@ src/
   app.ts               # express app: middleware, route loading, error handling, http/https
   config.ts            # core configuration from environment variables (zod)
   connectors.ts        # connectors started before listening and closed on shutdown
+  core/                # logger, request context, errors, connector lifecycle, route loading, middleware
   global/
     libs/              # connectors: Hazelcast, Kafka, Mssql, Redis
-    middleware/        # requestLogger, error, notFound, base route + Express Request typings
+    utils/             # HttpClient, ServiceRequester
     types/             # shared types (Connector, Cache, ...)
-    utils/             # logger, requestContext, lifecycle, HttpException, HttpClient, ServiceRequester, ...
   modules/
     health/            # example module
       routerV1.ts
@@ -55,7 +55,7 @@ Every file matching `ROUTES_GLOB` (default `modules/**/routerV1.{js,ts}`) is loa
 
 Every request runs inside a request context (Node's `AsyncLocalStorage`) holding a `requestId` (from `x-request-id`, or
 generated) and a W3C `traceId` (from `traceparent`, or generated). Anything running during the request, however deep in
-the call chain, can read it with `getRequestContext()` from `@utils/requestContext`, without passing ids around.
+the call chain, can read it with `getRequestContext()` from `@core/request-context`, without passing ids around.
 
 - Every log line written during the request gets `requestId` and `traceId` automatically. Logs are one JSON object per
   line: `{ time, level, requestId, traceId, ...fields }`; errors are serialized with their message and stack.
@@ -71,8 +71,7 @@ the call chain, can read it with `getRequestContext()` from `@utils/requestConte
   `status` of `<STATUS_PREFIX>1000` (e.g. `APP1000`).
 - Throw or `next()` an `HttpException` (e.g. `HttpException.notFound()`) to return `{ status, message, ...data }` with
   the matching HTTP code. Unknown errors become a 500, invalid JSON bodies a 400.
-- Status codes follow `<STATUS_PREFIX><version><3-digit code>`; see `formatStatus` in
-  `src/global/utils/HttpException.ts`.
+- Status codes follow `<STATUS_PREFIX><version><3-digit code>`; see `formatStatus` in `src/core/errors.ts`.
 
 ## Health & Lifecycle
 

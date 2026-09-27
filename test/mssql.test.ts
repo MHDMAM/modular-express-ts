@@ -1,5 +1,5 @@
+import logger from '@core/logger';
 import { MssqlConfig, MssqlConnector, mssqlConfigFromEnv } from '@libs/Mssql';
-import logger from '@utils/logger';
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

@@ -1,6 +1,6 @@
-import { formatStatus, SUCCESS_STATUS } from '@utils/HttpException';
+import { formatStatus, SUCCESS_STATUS } from '@core/errors';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startTestApp, TestApp } from './support/testApp';
+import { startTestApp, TestApp } from './support/test-app';
 
 describe('App', () => {
   let app: TestApp;

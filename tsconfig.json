@@ -20,7 +20,7 @@
     "baseUrl": "src",
     "paths": {
       "@/*": ["*"],
-      "@middleware/*": ["global/middleware/*"],
+      "@core/*": ["core/*"],
       "@utils/*": ["global/utils/*"],
       "@lTypes/*": ["global/types/*"],
       "@libs/*": ["global/libs/*"]

@@ -1,10 +1,9 @@
 import config from '@/config';
-import errorMiddleware from '@middleware/error';
-import checkAvailability from '@middleware/express';
-import notFoundMiddleware from '@middleware/notFound';
-import { requestLogger } from '@middleware/requestLogger';
-import { closeConnectors, initConnectors, startConnectorMonitor } from '@utils/lifecycle';
-import logger from '@utils/logger';
+import { closeConnectors, initConnectors, startConnectorMonitor } from '@core/lifecycle';
+import logger from '@core/logger';
+import errorMiddleware from '@core/middleware/error';
+import notFoundMiddleware from '@core/middleware/not-found';
+import { requestLogger } from '@core/middleware/request-logger';
 import compression from 'compression';
 import express from 'express';
 import { readFileSync } from 'fs';
@@ -13,7 +12,7 @@ import http from 'http';
 import https from 'https';
 import { join, resolve } from 'path';
 
-import loadRouters from '@utils/routeLoader';
+import loadRouters from '@core/routes';
 
 class App {
   private app: express.Application;
@@ -89,7 +88,6 @@ class App {
     this.app.use(requestLogger);
     const routers = await loadRouters([join(__dirname, config.routesGlob)]);
     if (routers.length > 0) this.app.use(config.baseUrl, routers);
-    this.app.use(config.baseUrl, checkAvailability);
 
     this.app.use(notFoundMiddleware);
   }

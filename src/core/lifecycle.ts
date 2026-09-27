@@ -1,7 +1,7 @@
 import config from '@/config';
 import registry from '@/connectors';
+import logger from '@core/logger';
 import { Connector } from '@lTypes/connector';
-import logger from '@utils/logger';
 
 /**
  * - `disabled`: turned off in config, never initialised

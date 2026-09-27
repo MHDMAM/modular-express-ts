@@ -1,8 +1,13 @@
-import { SUCCESS_STATUS } from '@utils/HttpException';
-import logger from '@utils/logger';
-import { contextFromHeaders, runWithContext } from '@utils/requestContext';
+import { SUCCESS_STATUS } from '@core/errors';
+import logger from '@core/logger';
+import { contextFromHeaders, runWithContext } from '@core/request-context';
 import { NextFunction, Request, Response } from 'express';
-import { MetaData } from './express';
+
+export interface MetaData {
+  processingTime?: number;
+  requestTime?: number;
+  responseTime?: number;
+}
 
 /**
  * First middleware of every request: creates the request context (`x-request-id` / `traceparent`, generated when

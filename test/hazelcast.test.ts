@@ -1,5 +1,5 @@
+import logger from '@core/logger';
 import { HazelcastConfig, HazelcastConnector, hazelcastConfigFromEnv } from '@libs/Hazelcast';
-import logger from '@utils/logger';
 import type { LifecycleState } from 'hazelcast-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

@@ -1,8 +1,8 @@
-import { HttpException } from '@utils/HttpException';
-import logger from '@utils/logger';
+import { HttpException } from '@core/errors';
+import logger from '@core/logger';
 import { NextFunction, Request, Response } from 'express';
 import _ from 'lodash';
-import { MetaData } from './express';
+import { MetaData } from './request-logger';
 
 const errorMiddleware = (err: Error, req: Request, res: Response, next: NextFunction) => {
   let error = err as HttpException;

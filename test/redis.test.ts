@@ -1,5 +1,5 @@
+import logger from '@core/logger';
 import { RedisConfig, RedisConnector, redisConfigFromEnv } from '@libs/Redis';
-import logger from '@utils/logger';
 import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

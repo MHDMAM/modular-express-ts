@@ -1,6 +1,6 @@
 import { envBoolean, envNumber, envOptional, envString, parseEnv } from '@/config';
+import logger from '@core/logger';
 import { Connector } from '@lTypes/connector';
-import logger from '@utils/logger';
 import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
 import { z } from 'zod';
 

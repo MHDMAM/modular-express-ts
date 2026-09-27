@@ -1,8 +1,8 @@
 import config, { envBoolean, envList, envOptional, envString, parseEnv } from '@/config';
 import type { KafkaJS } from '@confluentinc/kafka-javascript';
+import logger from '@core/logger';
+import { contextFromHeaders, contextHeaders, runWithContext } from '@core/request-context';
 import { Connector } from '@lTypes/connector';
-import logger from '@utils/logger';
-import { contextFromHeaders, contextHeaders, runWithContext } from '@utils/requestContext';
 import { z } from 'zod';
 
 export interface KafkaConfig {

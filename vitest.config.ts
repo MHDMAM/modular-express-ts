@@ -8,7 +8,7 @@ export default defineConfig({
     // Mirrors the `paths` in tsconfig.json
     alias: [
       { find: /^@\/(.*)$/, replacement: src('$1') },
-      { find: /^@middleware\/(.*)$/, replacement: src('global/middleware/$1') },
+      { find: /^@core\/(.*)$/, replacement: src('core/$1') },
       { find: /^@utils\/(.*)$/, replacement: src('global/utils/$1') },
       { find: /^@lTypes\/(.*)$/, replacement: src('global/types/$1') },
       { find: /^@libs\/(.*)$/, replacement: src('global/libs/$1') },

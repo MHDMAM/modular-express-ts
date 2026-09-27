@@ -1,4 +1,4 @@
-import { HttpException } from '@utils/HttpException';
+import { HttpException } from '@core/errors';
 
 export type SuccessPromiseObj<T = any, H = any> = {
   success: boolean;
