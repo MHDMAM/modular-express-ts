@@ -1,37 +1,38 @@
 import { HazelcastConfig, HazelcastConnector } from '@libs/Hazelcast';
 import logger from '@utils/logger';
 import { LifecycleState } from 'hazelcast-client';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** In-memory stand-in for a Hazelcast IMap, recording the TTL of each entry. */
 class FakeMap {
   entries = new Map<string, unknown>();
   ttls = new Map<string, number | undefined>();
-  get = jest.fn(async (key: string) => (this.entries.has(key) ? this.entries.get(key) : null));
-  set = jest.fn(async (key: string, value: unknown, ttl?: number) => {
+  get = vi.fn(async (key: string) => (this.entries.has(key) ? this.entries.get(key) : null));
+  set = vi.fn(async (key: string, value: unknown, ttl?: number) => {
     this.entries.set(key, value);
     this.ttls.set(key, ttl);
   });
-  delete = jest.fn(async (key: string) => void this.entries.delete(key));
+  delete = vi.fn(async (key: string) => void this.entries.delete(key));
 }
 
 const fake = {
   clientConfig: undefined as any,
   maps: new Map<string, FakeMap>(),
-  getMap: jest.fn(async (name: string) => {
+  getMap: vi.fn(async (name: string) => {
     if (!fake.maps.has(name)) fake.maps.set(name, new FakeMap());
     return fake.maps.get(name);
   }),
-  shutdown: jest.fn(async () => undefined),
+  shutdown: vi.fn(async () => undefined),
   /** Emits a lifecycle event to every configured listener, like the client does. */
   emit(state: LifecycleState) {
     fake.clientConfig.lifecycleListeners.forEach((listener: (s: LifecycleState) => void) => listener(state));
   },
 };
 
-jest.mock('hazelcast-client', () => ({
-  ...jest.requireActual('hazelcast-client'),
+vi.mock('hazelcast-client', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   Client: {
-    newHazelcastClient: jest.fn(async (clientConfig: any) => {
+    newHazelcastClient: vi.fn(async (clientConfig: any) => {
       fake.clientConfig = clientConfig;
       return { getMap: fake.getMap, shutdown: fake.shutdown };
     }),
@@ -45,7 +46,7 @@ const baseConfig: HazelcastConfig = {
 };
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   fake.maps.clear();
   fake.clientConfig = undefined;
 });
@@ -58,7 +59,7 @@ async function connected(config: HazelcastConfig = baseConfig) {
 
 describe('HazelcastConnector', () => {
   it('passes the client config through and adds its lifecycle listener, keeping user listeners', async () => {
-    const userListener = jest.fn();
+    const userListener = vi.fn();
     await connected({ ...baseConfig, client: { ...baseConfig.client, lifecycleListeners: [userListener] } });
 
     expect(fake.clientConfig).toMatchObject(baseConfig.client);
@@ -136,7 +137,7 @@ describe('HazelcastConnector', () => {
   });
 
   it('does not log cached values', async () => {
-    const spies = (['info', 'debug', 'error', 'warn'] as const).map((level) => jest.spyOn(logger, level));
+    const spies = (['info', 'debug', 'error', 'warn'] as const).map((level) => vi.spyOn(logger, level));
     const hazelcast = await connected();
 
     await hazelcast.set('user:1', { email: 'ada@example.com' });

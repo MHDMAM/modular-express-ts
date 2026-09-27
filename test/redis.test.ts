@@ -1,33 +1,34 @@
 import { RedisConfig, RedisConnector } from '@libs/Redis';
 import logger from '@utils/logger';
 import { EventEmitter } from 'events';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** In-memory stand-in for a node-redis client. */
 class FakeRedisClient extends EventEmitter {
   store = new Map<string, string>();
   isOpen = false;
   isReady = false;
-  connect = jest.fn(async () => {
+  connect = vi.fn(async () => {
     this.isOpen = this.isReady = true;
     return this;
   });
-  close = jest.fn(async () => {
+  close = vi.fn(async () => {
     this.isOpen = this.isReady = false;
   });
-  destroy = jest.fn(() => {
+  destroy = vi.fn(() => {
     this.isOpen = this.isReady = false;
   });
-  get = jest.fn(async (key: string) => this.store.get(key) ?? null);
-  set = jest.fn(async (key: string, value: string, _options?: unknown) => {
+  get = vi.fn(async (key: string) => this.store.get(key) ?? null);
+  set = vi.fn(async (key: string, value: string, _options?: unknown) => {
     this.store.set(key, value);
     return 'OK';
   });
-  del = jest.fn(async (key: string) => Number(this.store.delete(key)));
+  del = vi.fn(async (key: string) => Number(this.store.delete(key)));
 }
 
 let client: FakeRedisClient;
-const createClient = jest.fn((_options: unknown) => (client = new FakeRedisClient()));
-jest.mock('redis', () => ({ createClient: (options: unknown) => createClient(options) }));
+const createClient = vi.fn((_options: unknown) => (client = new FakeRedisClient()));
+vi.mock('redis', () => ({ createClient: (options: unknown) => createClient(options) }));
 
 const baseConfig: RedisConfig = { enabled: true, url: 'redis://cache:6379/1', keyPrefix: 'app:' };
 
@@ -37,7 +38,7 @@ async function connected(config: RedisConfig = baseConfig) {
   return redis;
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => vi.clearAllMocks());
 
 describe('RedisConnector', () => {
   it('connects with the configured URL', async () => {
@@ -49,7 +50,7 @@ describe('RedisConnector', () => {
   });
 
   it('logs client errors instead of crashing the process', async () => {
-    const error = jest.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
     await connected();
 
     expect(() => client.emit('error', new Error('connection lost'))).not.toThrow();
@@ -148,7 +149,7 @@ describe('RedisConnector', () => {
   });
 
   it('does not log cached values', async () => {
-    const spies = (['info', 'debug', 'error', 'warn'] as const).map((level) => jest.spyOn(logger, level));
+    const spies = (['info', 'debug', 'error', 'warn'] as const).map((level) => vi.spyOn(logger, level));
     const redis = await connected();
 
     await redis.set('user:1', { email: 'ada@example.com' });

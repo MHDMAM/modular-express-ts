@@ -1,5 +1,6 @@
 import { KafkaConfig, KafkaConnector } from '@libs/Kafka';
 import logger from '@utils/logger';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Fake of the Confluent client's KafkaJS-compatible API: records calls and captures the eachMessage callback
 const fake = {
@@ -8,21 +9,21 @@ const fake = {
   eachMessage: undefined as undefined | ((payload: any) => Promise<void>),
   calls: [] as string[],
   producer: {
-    connect: jest.fn(async () => void fake.calls.push('producer.connect')),
-    send: jest.fn(async (_record: any) => []),
-    disconnect: jest.fn(async () => void fake.calls.push('producer.disconnect')),
+    connect: vi.fn(async () => void fake.calls.push('producer.connect')),
+    send: vi.fn(async (_record: any) => []),
+    disconnect: vi.fn(async () => void fake.calls.push('producer.disconnect')),
   },
   consumer: {
-    connect: jest.fn(async () => void fake.calls.push('consumer.connect')),
-    subscribe: jest.fn(async (_subscription: any) => undefined),
-    run: jest.fn(async ({ eachMessage }: any) => void (fake.eachMessage = eachMessage)),
-    disconnect: jest.fn(async () => void fake.calls.push('consumer.disconnect')),
+    connect: vi.fn(async () => void fake.calls.push('consumer.connect')),
+    subscribe: vi.fn(async (_subscription: any) => undefined),
+    run: vi.fn(async ({ eachMessage }: any) => void (fake.eachMessage = eachMessage)),
+    disconnect: vi.fn(async () => void fake.calls.push('consumer.disconnect')),
   },
 };
 
-jest.mock('@confluentinc/kafka-javascript', () => ({
+vi.mock('@confluentinc/kafka-javascript', () => ({
   KafkaJS: {
-    Kafka: jest.fn().mockImplementation((kafkaConfig) => {
+    Kafka: vi.fn(function (kafkaConfig: any) {
       fake.kafkaConfig = kafkaConfig;
       return {
         producer: () => fake.producer,
@@ -56,7 +57,7 @@ function deliver(topic: string, value: string | null, extra: Record<string, any>
 }
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   fake.calls = [];
   fake.eachMessage = undefined;
   fake.kafkaConfig = fake.consumerConfig = undefined;
@@ -91,8 +92,8 @@ describe('KafkaConnector', () => {
 
   it('starts a consumer for the registered topics', async () => {
     const kafka = new KafkaConnector({ ...baseConfig, fromBeginning: true });
-    kafka.subscribe('orders', jest.fn());
-    kafka.subscribe('payments', jest.fn());
+    kafka.subscribe('orders', vi.fn());
+    kafka.subscribe('payments', vi.fn());
 
     await kafka.init();
 
@@ -102,8 +103,8 @@ describe('KafkaConnector', () => {
   });
 
   it('routes each message to its topic handler, decoded', async () => {
-    const orders = jest.fn(async () => undefined);
-    const payments = jest.fn(async () => undefined);
+    const orders = vi.fn(async () => undefined);
+    const payments = vi.fn(async () => undefined);
     const kafka = new KafkaConnector(baseConfig);
     kafka.subscribe('orders', orders);
     kafka.subscribe('payments', payments);
@@ -126,11 +127,11 @@ describe('KafkaConnector', () => {
 
   it('rejects handlers registered after init or twice for the same topic', async () => {
     const kafka = new KafkaConnector(baseConfig);
-    kafka.subscribe('orders', jest.fn());
+    kafka.subscribe('orders', vi.fn());
 
-    expect(() => kafka.subscribe('orders', jest.fn())).toThrow('already registered');
+    expect(() => kafka.subscribe('orders', vi.fn())).toThrow('already registered');
     await kafka.init();
-    expect(() => kafka.subscribe('payments', jest.fn())).toThrow('before the connector is initialised');
+    expect(() => kafka.subscribe('payments', vi.fn())).toThrow('before the connector is initialised');
   });
 
   it('sends single messages and batches', async () => {
@@ -203,7 +204,7 @@ describe('KafkaConnector', () => {
   });
 
   it('does not log message values', async () => {
-    const error = jest.spyOn(logger, 'error');
+    const error = vi.spyOn(logger, 'error');
     const kafka = new KafkaConnector(baseConfig);
     kafka.subscribe('orders', async () => {
       throw new Error('bad order');
@@ -218,7 +219,7 @@ describe('KafkaConnector', () => {
 
   it('disconnects the consumer before the producer on close', async () => {
     const kafka = new KafkaConnector(baseConfig);
-    kafka.subscribe('orders', jest.fn());
+    kafka.subscribe('orders', vi.fn());
     await kafka.init();
 
     await kafka.close();

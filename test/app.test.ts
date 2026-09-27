@@ -1,4 +1,5 @@
 import { formatStatus, SUCCESS_STATUS } from '@utils/HttpException';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestApp, TestApp } from './support/testApp';
 
 describe('App', () => {

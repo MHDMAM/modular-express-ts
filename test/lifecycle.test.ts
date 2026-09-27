@@ -2,6 +2,7 @@ import registry from '@/connectors';
 import { Connector } from '@lTypes/connector';
 import { formatStatus } from '@utils/HttpException';
 import { closeConnectors, connectorStatus, initConnectors } from '@utils/lifecycle';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startTestApp, TestApp } from './support/testApp';
 
 function fakeConnector(name: string, opts: { enabled?: boolean; failInit?: boolean; failClose?: boolean } = {}) {
@@ -11,12 +12,12 @@ function fakeConnector(name: string, opts: { enabled?: boolean; failInit?: boole
     name,
     enabled: opts.enabled ?? true,
     calls,
-    init: jest.fn(async () => {
+    init: vi.fn(async () => {
       calls.push(`init:${name}`);
       if (opts.failInit) throw new Error(`${name} init failed`);
       ready = true;
     }),
-    close: jest.fn(async () => {
+    close: vi.fn(async () => {
       calls.push(`close:${name}`);
       ready = false;
       if (opts.failClose) throw new Error(`${name} close failed`);
@@ -57,7 +58,7 @@ describe('connector lifecycle', () => {
   it('times out a connector that never becomes ready and closes it to stop its retries', async () => {
     const a = fakeConnector('a');
     const stuck = fakeConnector('stuck');
-    stuck.init = jest.fn(() => new Promise<void>(() => undefined));
+    stuck.init = vi.fn(() => new Promise<void>(() => undefined));
 
     await expect(initConnectors([a, stuck], 50)).rejects.toThrow('stuck was not ready within 50ms');
 

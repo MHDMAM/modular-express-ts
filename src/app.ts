@@ -14,7 +14,7 @@ import http from 'http';
 import https from 'https';
 import { join, resolve } from 'path';
 
-import routeLoader from '@utils/routeLoader';
+import loadRouters from '@utils/routeLoader';
 
 class App {
   private app: express.Application;
@@ -24,7 +24,15 @@ class App {
   private server: http.Server;
   private shuttingDown = false;
 
-  constructor() {
+  /** Creates the app: middleware, auto-loaded module routes and error handling. */
+  static async create(): Promise<App> {
+    const app = new App();
+    await app.initializeRoutes();
+    app.initializeErrorHandling();
+    return app;
+  }
+
+  private constructor() {
     this.app = express();
     this.env = process.env['NODE_ENV'];
     this.port = envHandler.getPort();
@@ -33,8 +41,6 @@ class App {
     process.env.NODE_PATH = resolve(__dirname);
 
     this.initializeMiddleware();
-    this.initializeRoutes();
-    this.initializeErrorHandling();
   }
 
   public listen() {
@@ -82,11 +88,10 @@ class App {
     this.app.use(express.urlencoded({ extended: true }));
   }
 
-  private initializeRoutes() {
+  private async initializeRoutes() {
     this.app.use(requestLogger);
-    const routeRoot = join(__dirname, config.get('routerExp'));
-    const routes = routeLoader.importClassesFromDirectories([routeRoot]);
-    if (routes?.length > 0) this.app.use(config.get('baseUrl'), routes);
+    const routers = await loadRouters([join(__dirname, config.get('routerExp'))]);
+    if (routers.length > 0) this.app.use(config.get('baseUrl'), routers);
     this.app.use(config.get('baseUrl'), checkAvailability);
 
     this.app.use('*', notFoundMiddleware);

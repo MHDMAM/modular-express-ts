@@ -4,8 +4,19 @@ import App from './app';
 process.env['NODE_CONFIG_DIR'] = join(__dirname, 'config');
 process.env.NODE_PATH = resolve(__dirname);
 
-const app = new App();
-app.start();
+let app: App | undefined;
+App.create()
+  .then((created) => {
+    app = created;
+    return app.start();
+  })
+  .catch((error) => {
+    logger.error({ info: 'Failed to start', error });
+    process.exit(1);
+  });
+
+/** Shuts down gracefully once the app exists; exits directly if startup has not finished. */
+const shutdown = (reason: string) => (app ? app.gracefullyShutdown(reason) : process.exit(1));
 
 process.on('unhandledRejection', function (reason: Error, promise: Promise<any>) {
   /* I just caught an unhandled promise rejection, 
@@ -32,7 +43,7 @@ process.on('uncaughtException', (reason: Error, origin: string) => {
     origin,
   });
 
-  app.gracefullyShutdown(origin);
+  shutdown(origin);
 });
 
 process.on('deprecation', (dep) => {
@@ -55,10 +66,10 @@ process.on('warning', (warning) => {
 
 // politely ask a program to terminate.
 process.on('SIGINT', () => {
-  app.gracefullyShutdown('SIGINT');
+  shutdown('SIGINT');
 });
 
 // cause program termination.
 process.on('SIGTERM', () => {
-  app.gracefullyShutdown('SIGTERM');
+  shutdown('SIGTERM');
 });

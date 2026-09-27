@@ -11,6 +11,7 @@ import ServiceRequester from '@utils/ServiceRequester';
 import config from 'config';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void;
 
@@ -256,7 +257,7 @@ describe('HttpClient', () => {
 });
 
 describe('ServiceRequester', () => {
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   it('sends x-request-id and x-source headers and resolves relative URLs against baseURL', async () => {
     server.respond(reply(200, { id: 1 }));
@@ -295,7 +296,7 @@ describe('ServiceRequester', () => {
 
   it('logs calls without headers or bodies', async () => {
     server.respond(reply(200, { secretBody: 'personal-data' }));
-    const info = jest.spyOn(logger, 'info');
+    const info = vi.spyOn(logger, 'info');
     const requester = new ServiceRequester('users', { baseURL: server.url });
 
     await requester.httpCall({ url: '/me', headers: { authorization: 'Bearer secret-token' }, ref: 'r1' });

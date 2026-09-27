@@ -13,15 +13,15 @@ curl localhost:3000/api/v1/health
 
 ## Scripts
 
-| Script              | Description                                                |
-| ------------------- | ---------------------------------------------------------- |
-| `npm run dev`       | Start in watch mode (nodemon + ts-node)                    |
-| `npm run debug`     | Same as `dev` with the Node inspector enabled              |
-| `npm run build`     | Clean `dist/`, compile with `tsc` and rewrite path aliases |
-| `npm start`         | Run the compiled app from `dist/`                          |
-| `npm run typecheck` | Type-check without emitting                                |
-| `npm run format`    | Format with Prettier (imports organised automatically)     |
-| `npm test`          | Run Jest tests from `test/`                                |
+| Script              | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `npm run dev`       | Start in watch mode (nodemon + ts-node)                           |
+| `npm run debug`     | Same as `dev` with the Node inspector enabled                     |
+| `npm run build`     | Clean `dist/`, compile with `tsc` and rewrite path aliases        |
+| `npm start`         | Run the compiled app from `dist/`                                 |
+| `npm run typecheck` | Type-check without emitting                                       |
+| `npm run format`    | Format with Prettier (imports organised automatically)            |
+| `npm test`          | Run the Vitest tests from `test/` (`npm run test:watch` to watch) |
 
 ## Project Structure
 
@@ -40,7 +40,7 @@ src/
     health/            # example module
       routerV1.ts
       controller.ts
-test/                  # Jest tests
+test/                  # Vitest tests
 ```
 
 ## Modules & Routing
