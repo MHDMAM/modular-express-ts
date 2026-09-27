@@ -28,5 +28,13 @@
       "min": 0,
       "idleTimeoutMillis": 30000
     }
+  },
+  "kafka": {
+    "enabled": false,
+    "consumerEnabled": false,
+    "clientId": "nodejs-boilerplate",
+    "brokers": ["localhost:9092"],
+    "groupId": "nodejs-boilerplate-group",
+    "topicName": "events"
   }
 }

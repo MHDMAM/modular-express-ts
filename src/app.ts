@@ -12,6 +12,7 @@ import helmet from 'helmet';
 import http from 'http';
 import https from 'https';
 import { join, resolve } from 'path';
+if (config.get('kafka.enabled')) import('@utils/kafka'); // Ensure this file runs to start Kafka initialization
 
 import routeLoader from '@utils/routeLoader';
 
