@@ -6,6 +6,7 @@
   "statusPrefix": "APP",
   "log_dir": "logs",
   "shutdownTimeoutMs": 10000,
+  "connectorInitTimeoutMs": 30000,
   "ssl": {
     "key": "ssl_cert/server.key",
     "cert": "ssl_cert/server.cer",

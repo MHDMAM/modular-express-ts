@@ -1,18 +1,33 @@
 import registry from '@/connectors';
 import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
+import config from 'config';
 
-/** Initialises every enabled connector in order. On failure, closes the ones already started and rethrows. */
-export async function initConnectors(connectors: Connector[] = registry): Promise<void> {
+/** Rejects if `promise` does not settle within `timeoutMs`. */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(message)), timeoutMs)));
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Initialises every enabled connector in order. Clients often retry an unreachable server forever, so each
+ * connector gets `timeoutMs` to become ready. On failure or timeout, closes the failed connector (stopping its
+ * retries) and the ones already started, then rethrows.
+ */
+export async function initConnectors(
+  connectors: Connector[] = registry,
+  timeoutMs: number = config.get('connectorInitTimeoutMs'),
+): Promise<void> {
   const started: Connector[] = [];
   for (const connector of connectors.filter((c) => c.enabled)) {
     try {
-      await connector.init();
+      await withTimeout(connector.init(), timeoutMs, `${connector.name} was not ready within ${timeoutMs}ms`);
       started.push(connector);
       logger.info({ info: 'Connector ready', connector: connector.name });
     } catch (error) {
       logger.error({ info: 'Connector failed to initialise', connector: connector.name, error });
-      await closeConnectors(started);
+      await closeConnectors([...started, connector]);
       throw error;
     }
   }

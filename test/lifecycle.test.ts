@@ -40,7 +40,7 @@ describe('connector lifecycle', () => {
     expect(connectorStatus([a, b, c])).toEqual({ a: true, c: true });
   });
 
-  it('closes already started connectors and rethrows when one fails to initialise', async () => {
+  it('closes the failed and already started connectors and rethrows when one fails to initialise', async () => {
     const order: string[] = [];
     const a = fakeConnector('a');
     const b = fakeConnector('b');
@@ -50,8 +50,19 @@ describe('connector lifecycle', () => {
 
     await expect(initConnectors([a, b, c, d])).rejects.toThrow('c init failed');
 
-    expect(order).toEqual(['init:a', 'init:b', 'init:c', 'close:b', 'close:a']);
+    expect(order).toEqual(['init:a', 'init:b', 'init:c', 'close:c', 'close:b', 'close:a']);
     expect(d.init).not.toHaveBeenCalled();
+  });
+
+  it('times out a connector that never becomes ready and closes it to stop its retries', async () => {
+    const a = fakeConnector('a');
+    const stuck = fakeConnector('stuck');
+    stuck.init = jest.fn(() => new Promise<void>(() => undefined));
+
+    await expect(initConnectors([a, stuck], 50)).rejects.toThrow('stuck was not ready within 50ms');
+
+    expect(stuck.close).toHaveBeenCalled();
+    expect(a.close).toHaveBeenCalled();
   });
 
   it('closes connectors in reverse order and keeps going when one fails', async () => {

@@ -66,8 +66,9 @@ Every file matching `routerExp` (default `modules/**/routerV1.{js,ts}`) is loade
   readiness probes.
 
 On startup every enabled connector in `src/connectors.ts` is initialised in order before the server listens; if one
-fails, the others are closed and the process exits. On `SIGINT`/`SIGTERM` the server stops accepting requests, the
-connectors are closed in reverse order, and the process exits (forced after `shutdownTimeoutMs`, default 10s).
+fails or is not ready within `connectorInitTimeoutMs` (default 30s), the connectors are closed and the process exits. On
+`SIGINT`/`SIGTERM` the server stops accepting requests, the connectors are closed in reverse order, and the process
+exits (forced after `shutdownTimeoutMs`, default 10s).
 
 A connector implements `Connector` from `src/global/types/connector.ts` (`init`, `close`, `isReady`).
 
