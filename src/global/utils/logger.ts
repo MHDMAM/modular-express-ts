@@ -1,33 +1,39 @@
+import { getRequestContext } from '@utils/requestContext';
 import config from 'config';
 import jsonStringify from 'fast-safe-stringify';
 import { resolve } from 'path';
 import winston from 'winston';
 import winstonDaily from 'winston-daily-rotate-file';
+
 // logs dir, relative paths resolve against the working directory
 const logDir: string = resolve(config.get('log_dir') as string);
 
-// Define log format
-const consoleLogFormat = winston.format.printf(({ timestamp, level, message }) =>
-  jsonStringify({ time: timestamp, message, level }, (key: string, value: any) => {
-    if (value instanceof Error) {
-      let error: any = {};
+/** Serializes errors with their message and stack (JSON.stringify would write `{}`), and bigints as strings. */
+function replacer(_key: string, value: unknown) {
+  if (value instanceof Error) {
+    const error: Record<string, unknown> = {};
+    for (const key of Object.getOwnPropertyNames(value)) error[key] = (value as any)[key];
+    if (typeof error.stack === 'string') error.stack = error.stack.replace(/\s\s+/g, ' ').replace(/[\\]/g, '/');
+    return error;
+  }
+  return typeof value === 'bigint' ? value.toString() : value;
+}
 
-      Object.getOwnPropertyNames(value).forEach(function (key) {
-        error[key] = value[key as keyof Error];
-      });
-      if (error.stack) {
-        error.stack = error.stack.replace(/\s\s+/g, ' ').replace(/[\\]/g, '/');
-      }
-      return error;
-    }
-    if (typeof value === 'bigint') value = value.toString();
-    return value;
-  }),
-);
+/**
+ * One JSON object per line: `{ time, level, requestId, traceId, message?, ...fields }`.
+ * `requestId` / `traceId` come from the current request context, so every log written while handling a request is
+ * correlated without passing ids around. `logger.info({ info: 'x', a: 1 })` puts `info` and `a` at the top level.
+ */
+const lineFormat = winston.format.printf((info) => {
+  const { level, message, timestamp, ...rest } = info;
+  const fields = message !== null && typeof message === 'object' ? message : { message };
+  return jsonStringify({ time: timestamp, level, ...getRequestContext(), ...rest, ...fields }, replacer);
+});
 
-const loggerFormat = winston.format.combine(
+const format = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
-  winston.format.json(),
+  winston.format.splat(),
+  lineFormat,
 );
 
 /*
@@ -35,19 +41,14 @@ const loggerFormat = winston.format.combine(
  * error: 0, warn: 1, info: 2, http: 3, verbose: 4, debug: 5, silly: 6
  */
 const logger = winston.createLogger({
-  format: loggerFormat,
+  format,
   transports: [
-    new winston.transports.Console({
-      level: 'silly',
-      format: winston.format.combine(consoleLogFormat, winston.format.splat()),
-    }),
-    // debug log setting
+    new winston.transports.Console({ level: 'silly' }),
     new winstonDaily({
       datePattern: 'YYYY-MM-DD',
       dirname: logDir + '/logs',
       filename: `info-%DATE%.log`,
     }),
-    // error log setting
     new winstonDaily({
       level: 'error',
       datePattern: 'YYYY-MM-DD',

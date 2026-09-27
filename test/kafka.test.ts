@@ -1,5 +1,6 @@
 import { KafkaConfig, KafkaConnector } from '@libs/Kafka';
 import logger from '@utils/logger';
+import { getRequestContext, runWithContext } from '@utils/requestContext';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Fake of the Confluent client's KafkaJS-compatible API: records calls and captures the eachMessage callback
@@ -141,11 +142,56 @@ describe('KafkaConnector', () => {
     await kafka.send('orders', { key: 'a', value: '1' });
     await kafka.send('orders', [{ value: '2' }, { value: '3' }]);
 
-    expect(fake.producer.send).toHaveBeenNthCalledWith(1, { topic: 'orders', messages: [{ key: 'a', value: '1' }] });
+    expect(fake.producer.send).toHaveBeenNthCalledWith(1, {
+      topic: 'orders',
+      messages: [{ key: 'a', value: '1', headers: {} }],
+    });
     expect(fake.producer.send).toHaveBeenNthCalledWith(2, {
       topic: 'orders',
-      messages: [{ value: '2' }, { value: '3' }],
+      messages: [
+        { value: '2', headers: {} },
+        { value: '3', headers: {} },
+      ],
     });
+  });
+
+  it('adds the current request context to sent messages, without overriding their own headers', async () => {
+    const kafka = new KafkaConnector(baseConfig);
+    await kafka.init();
+    const context = { requestId: 'req-1', traceId: 'a'.repeat(32) };
+
+    await runWithContext(context, () =>
+      kafka.send('orders', [{ value: '1' }, { value: '2', headers: { 'x-request-id': 'own-id' } }]),
+    );
+
+    const [first, second] = fake.producer.send.mock.calls[0][0].messages;
+    expect(first.headers['x-request-id']).toBe('req-1');
+    expect(first.headers.traceparent).toMatch(new RegExp(`^00-${'a'.repeat(32)}-[\\da-f]{16}-01$`));
+    expect(second.headers['x-request-id']).toBe('own-id');
+  });
+
+  it('runs handlers in a request context rebuilt from the message headers', async () => {
+    let seen: ReturnType<typeof getRequestContext>;
+    const kafka = new KafkaConnector(baseConfig);
+    kafka.subscribe('orders', async () => {
+      await Promise.resolve();
+      seen = getRequestContext();
+    });
+    await kafka.init();
+
+    await deliver('orders', '{}', {
+      message: {
+        key: null,
+        value: Buffer.from('{}'),
+        offset: '1',
+        headers: {
+          'x-request-id': Buffer.from('from-producer'),
+          traceparent: `00-${'b'.repeat(32)}-${'c'.repeat(16)}-01`,
+        },
+      },
+    });
+
+    expect(seen).toEqual({ requestId: 'from-producer', traceId: 'b'.repeat(32) });
   });
 
   it('refuses to send before init and after close', async () => {

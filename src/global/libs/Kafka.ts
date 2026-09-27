@@ -1,6 +1,7 @@
 import { KafkaJS } from '@confluentinc/kafka-javascript';
 import { Connector } from '@lTypes/connector';
 import logger from '@utils/logger';
+import { contextFromHeaders, contextHeaders, runWithContext } from '@utils/requestContext';
 import config from 'config';
 
 export interface KafkaConfig {
@@ -95,7 +96,11 @@ export class KafkaConnector implements Connector {
   /** Publishes one or more messages; throws if the connector is not ready or the broker rejects them. */
   async send(topic: string, messages: OutgoingMessage | OutgoingMessage[]): Promise<void> {
     if (!this.ready || !this.producer) throw new Error('Kafka connector is not ready');
-    const batch = Array.isArray(messages) ? messages : [messages];
+    // Propagates the current request context (x-request-id, traceparent) unless the message sets its own
+    const batch = (Array.isArray(messages) ? messages : [messages]).map((message) => ({
+      ...message,
+      headers: { ...contextHeaders(), ...message.headers },
+    }));
     await this.producer.send({ topic, messages: batch });
     logger.debug({ info: 'Kafka messages sent', topic, count: batch.length });
   }
@@ -123,7 +128,8 @@ export class KafkaConnector implements Connector {
       headers: decodeHeaders(message.headers),
     };
     try {
-      await this.handlers.get(topic)!(incoming);
+      // The handler runs in a request context rebuilt from the message headers, so its logs and calls correlate
+      await runWithContext(contextFromHeaders(incoming.headers), () => this.handlers.get(topic)!(incoming));
     } catch (error) {
       // Message values are not logged: they may contain personal data
       const context = { topic, partition, offset: message.offset, key: incoming.key };

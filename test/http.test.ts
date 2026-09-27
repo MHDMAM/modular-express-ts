@@ -7,6 +7,7 @@ import {
   type HttpResponse,
 } from '@utils/HttpClient';
 import logger from '@utils/logger';
+import { parseTraceparent, runWithContext } from '@utils/requestContext';
 import ServiceRequester from '@utils/ServiceRequester';
 import config from 'config';
 import http, { IncomingMessage, ServerResponse } from 'http';
@@ -258,6 +259,17 @@ describe('HttpClient', () => {
 
 describe('ServiceRequester', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('propagates the current request context (x-request-id and traceparent)', async () => {
+    server.respond(reply(200));
+    const requester = new ServiceRequester('users', { baseURL: server.url });
+    const traceId = 'd'.repeat(32);
+
+    await runWithContext({ requestId: 'req-ctx', traceId }, () => requester.httpCall({ url: '/' }));
+
+    expect(server.requests[0].headers['x-request-id']).toBe('req-ctx');
+    expect(parseTraceparent(server.requests[0].headers.traceparent as string)).toBe(traceId);
+  });
 
   it('sends x-request-id and x-source headers and resolves relative URLs against baseURL', async () => {
     server.respond(reply(200, { id: 1 }));

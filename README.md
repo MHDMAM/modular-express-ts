@@ -48,6 +48,19 @@ test/                  # Vitest tests
 Every file matching `routerExp` (default `modules/**/routerV1.{js,ts}`) is loaded automatically and mounted under
 `baseUrl` (default `/api/v1`). To add a module, create `src/modules/<name>/routerV1.ts` exporting an Express `Router`.
 
+## Request Context & Logging
+
+Every request runs inside a request context (Node's `AsyncLocalStorage`) holding a `requestId` (from `x-request-id`, or
+generated) and a W3C `traceId` (from `traceparent`, or generated). Anything running during the request, however deep in
+the call chain, can read it with `getRequestContext()` from `@utils/requestContext`, without passing ids around.
+
+- Every log line written during the request gets `requestId` and `traceId` automatically. Logs are one JSON object per
+  line: `{ time, level, requestId, traceId, ...fields }`; errors are serialized with their message and stack.
+- `ServiceRequester` and `kafka.send()` forward `x-request-id` and `traceparent`, and Kafka handlers run in a context
+  rebuilt from the message headers, so one id follows a request across services.
+- Request/response headers and bodies are not logged, as they may carry credentials or personal data.
+- Keep the context to request metadata (ids, tenant, user reference); pass business data as normal arguments.
+
 ## Responses & Errors
 
 - Each request gets a `ref` taken from the `x-request-id` header (or a generated UUID), echoed back in the response
@@ -112,7 +125,8 @@ const res = await users.httpCall<User>({ url: `/users/${id}`, ref: req.ref });
 if (!res.success) return next(HttpException.internal());
 ```
 
-- Sends `x-request-id` (from `ref`) and `x-source` (`APP_NAME`), with a 5s timeout per attempt.
+- Sends `x-request-id` and `traceparent` from the request context (`ref` overrides the request id) and `x-source`
+  (`APP_NAME`), with a 5s timeout per attempt.
 - Retries 408/429/502/503/504 and network errors with exponential backoff and jitter, honouring `Retry-After`; only
   idempotent methods (GET, HEAD, OPTIONS, PUT, DELETE) are retried unless configured otherwise.
 - A circuit breaker shared by all calls to the service opens after 5 consecutive failures (5xx, 408, 429 or no response)

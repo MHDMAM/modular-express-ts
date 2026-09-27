@@ -15,24 +15,15 @@ const errorMiddleware = (err: Error, req: Request, res: Response, next: NextFunc
     responseTime: req.responseTime,
     processingTime: benchmark,
   };
+  // Headers and bodies are not logged: they may carry credentials or personal data
   logger.error({
-    info: `Exception Handler: ${req.ref}`,
+    info: 'Request failed',
     method: req.method,
     path: req.originalUrl,
-    headers: req.headers,
-    query: req.query,
-    params: req.params,
-    body: req.body,
-    errorData: error.data,
-    errorMsg: error.message,
-    errorName: error.name,
-    errorStack: error.stack,
     httpStatus: error.httpCode,
-    benchmark,
-    isErrorSyntaxError: error instanceof SyntaxError,
     status: error.status,
+    benchmark,
     error,
-    metadata,
   });
 
   // Invalid JSON body (thrown by express.json()) or any error that is not an HttpException

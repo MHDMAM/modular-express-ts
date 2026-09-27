@@ -1,6 +1,7 @@
 import { SuccessPromiseObj } from '@lTypes/interfaces';
 import { AxiosRequestConfig, CircuitState, HttpClient, HttpClientOptions, HttpResponse } from '@utils/HttpClient';
 import logger from '@utils/logger';
+import { contextHeaders } from '@utils/requestContext';
 import config from 'config';
 import _ from 'lodash';
 
@@ -14,12 +15,13 @@ export interface ServiceRequesterOptions extends HttpClientOptions {
 }
 
 export interface ServiceRequestConfig extends AxiosRequestConfig {
-  /** Request id to propagate (usually `req.ref`), sent as `x-request-id`. */
+  /** Overrides the `x-request-id` taken from the current request context. */
   ref?: string;
 }
 
 /**
- * Client for one downstream service: adds `x-request-id` / `x-source` headers, a timeout, retries and a circuit
+ * Client for one downstream service: adds `x-request-id` / `traceparent` (from the request context) and `x-source`
+ * headers, a timeout, retries and a circuit
  * breaker shared by every call (enabled by default), and logs each call without headers or bodies.
  * Create one instance per downstream service and reuse it.
  */
@@ -53,6 +55,7 @@ export default class ServiceRequester {
       ...request,
       timeout: request.timeout ?? this.timeoutMs,
       headers: {
+        ...contextHeaders(),
         ...(request.headers as Record<string, string>),
         'x-source': this.source,
         ...(ref && { 'x-request-id': ref }),
