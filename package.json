@@ -1,7 +1,7 @@
 {
   "name": "modular-express-ts",
   "version": "1.1.0",
-  "description": "Express + TypeScript API boilerplate with auto-loaded modules, structured logging and optional MSSQL, Kafka and Hazelcast connectors",
+  "description": "Express + TypeScript API boilerplate with auto-loaded modules, request-scoped logging and optional MSSQL, Kafka, Hazelcast and Redis connectors",
   "main": "dist/server.js",
   "keywords": [
     "boilerplate",
@@ -10,15 +10,19 @@
   ],
   "author": "MHD Abdulkarim Al Midani",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx watch --env-file-if-exists=.env src/server.ts",
     "debug": "cross-env NODE_ENV=development tsx watch --inspect --env-file-if-exists=.env src/server.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "rimraf dist && tsc && tsc-alias",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write . --ignore-path .gitignore",
+    "format": "prettier --write . --ignore-path .gitignore --ignore-path .git/info/exclude",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .git/info/exclude"
   },
   "dependencies": {
     "@confluentinc/kafka-javascript": "^1.10.1",

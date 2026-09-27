@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits", "group:allNonMajor"],
+  "schedule": ["before 6am on the first day of the month"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first day of the month"]
+  },
+  "rangeStrategy": "bump",
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Major updates get one PR each, so breaking changes are reviewed separately",
+      "matchUpdateTypes": ["major"],
+      "groupName": null
+    }
+  ]
+}
