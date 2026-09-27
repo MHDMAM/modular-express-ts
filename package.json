@@ -1,0 +1,48 @@
+{
+  "name": "nodejs-boilerplate",
+  "version": "1.0.0",
+  "description": "Express + TypeScript API boilerplate with auto-loaded modules, structured logging and optional MSSQL, Kafka and Hazelcast connectors",
+  "main": "dist/server.js",
+  "keywords": [
+    "boilerplate",
+    "express",
+    "typescript"
+  ],
+  "author": "MHD Abdul (Karim)",
+  "license": "ISC",
+  "scripts": {
+    "dev": "nodemon",
+    "debug": "cross-env NODE_OPTIONS=--inspect nodemon",
+    "start": "node dist/server.js",
+    "build": "rimraf dist && tsc && tsc-alias",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write . --ignore-path .gitignore"
+  },
+  "dependencies": {
+    "compression": "^1.7.5",
+    "config": "^3.3.9",
+    "express": "^4.21.1",
+    "fast-safe-stringify": "^2.1.1",
+    "glob": "^7.2.3",
+    "helmet": "^8.0.0",
+    "lodash": "^4.17.21",
+    "tslib": "^2.7.0",
+    "winston": "^3.10.0",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "@types/config": "0.0.41",
+    "@types/express": "^4.17.21",
+    "@types/lodash": "^4.14.196",
+    "@types/node": "^20.19.43",
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.7",
+    "prettier": "^3.3.3",
+    "prettier-plugin-organize-imports": "^3.2.3",
+    "rimraf": "^3.0.2",
+    "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.10",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3"
+  }
+}

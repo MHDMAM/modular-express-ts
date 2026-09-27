@@ -1,0 +1,13 @@
+{
+  "APP_NAME": "nodejs-boilerplate",
+  "PORT": 3000,
+  "baseUrl": "/api/v1",
+  "routerExp": "modules/**/routerV1.{js,ts}",
+  "statusPrefix": "APP",
+  "log_dir": "logs",
+  "ssl": {
+    "key": "ssl_cert/server.key",
+    "cert": "ssl_cert/server.cer",
+    "minVersion": "TLSv1.3"
+  }
+}
