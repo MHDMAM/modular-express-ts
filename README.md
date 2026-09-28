@@ -21,7 +21,7 @@ curl localhost:3000/api/v1/health
 | `npm run build`        | Clean `dist/` and compile with `tsc`                         |
 | `npm start`            | Run the compiled app from `dist/`, loading `.env` if present |
 | `npm run typecheck`    | Type-check without emitting                                  |
-| `npm run format`       | Format with Prettier (imports organised automatically)       |
+| `npm run format`       | Format with Prettier (imports sorted automatically)          |
 | `npm run format:check` | Check formatting (as CI does)                                |
 | `npm test`             | Run the Vitest tests (`npm run test:watch` to watch)         |
 
@@ -166,7 +166,8 @@ Both are built on [cockatiel](https://github.com/connor4312/cockatiel) and axios
 
 ## Maintenance
 
-- Requires Node.js 24 (current LTS, see `.nvmrc`).
+- Requires Node.js 24 (current LTS, see `.nvmrc`). The project is ES modules (relative imports end in `.js`), compiled
+  with TypeScript 7 in strict mode; unused imports and variables fail the type check.
 - CI (`.github/workflows/ci.yml`) checks formatting, types, tests and the build on every push and pull request.
 - [Renovate](https://docs.renovatebot.com) (`renovate.json`) opens monthly dependency update PRs: minor and patch
   updates grouped in one PR, each major update in its own PR. Install the Renovate GitHub app on the repository to
