@@ -1,5 +1,5 @@
 import logger from '#core/logger';
-import App from './app';
+import App from './app.js';
 
 let app: App | undefined;
 App.create()

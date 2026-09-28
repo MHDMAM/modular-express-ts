@@ -1,7 +1,7 @@
 import config from '#config';
 import http from 'http';
 import { AddressInfo } from 'net';
-import App from '../../src/app';
+import App from '../../src/app.js';
 
 export interface TestApp {
   /** Base URL of the API, including `baseUrl` (e.g. `http://127.0.0.1:1234/api/v1`). */

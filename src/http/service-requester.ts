@@ -9,7 +9,7 @@ import {
   HttpClientOptions,
   HttpResponse,
   SuccessPromiseObj,
-} from './http-client';
+} from './http-client.js';
 
 export interface ServiceRequesterOptions extends HttpClientOptions {
   /** Prefix for relative request URLs. */

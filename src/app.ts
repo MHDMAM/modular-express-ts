@@ -87,7 +87,7 @@ class App {
   }
 
   private async initializeRoutes() {
-    const routers = await loadRouters([join(__dirname, config.routesGlob)]);
+    const routers = await loadRouters([join(import.meta.dirname, config.routesGlob)]);
     if (routers.length > 0) this.app.use(config.baseUrl, routers);
 
     this.app.use(notFoundMiddleware);

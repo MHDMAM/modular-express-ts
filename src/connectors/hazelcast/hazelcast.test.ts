@@ -1,7 +1,7 @@
 import logger from '#core/logger';
 import type { LifecycleState } from 'hazelcast-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { HazelcastConfig, HazelcastConnector, hazelcastConfigFromEnv } from './hazelcast';
+import { HazelcastConfig, HazelcastConnector, hazelcastConfigFromEnv } from './hazelcast.js';
 
 /** In-memory stand-in for a Hazelcast IMap, recording the TTL of each entry. */
 class FakeMap {

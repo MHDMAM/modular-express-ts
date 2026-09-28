@@ -9,7 +9,7 @@ import {
 } from '#core/lifecycle';
 import logger from '#core/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FakeConnector, fakeConnector } from '../../test/support/fake-connector';
+import { FakeConnector, fakeConnector } from '../../test/support/fake-connector.js';
 
 /** Records the order of init/close calls across connectors. */
 function trackOrder(...connectors: FakeConnector[]) {

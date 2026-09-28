@@ -4,8 +4,15 @@ import { parseTraceparent, runWithContext } from '#core/request-context';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { CIRCUIT_OPEN, CircuitState, HttpClient, backoffDelayMs, retryAfterMs, type HttpResponse } from './http-client';
-import ServiceRequester from './service-requester';
+import {
+  CIRCUIT_OPEN,
+  CircuitState,
+  HttpClient,
+  backoffDelayMs,
+  retryAfterMs,
+  type HttpResponse,
+} from './http-client.js';
+import ServiceRequester from './service-requester.js';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void;
 

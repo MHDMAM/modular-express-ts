@@ -2,7 +2,7 @@ import { HttpException } from '#core/errors';
 import logger from '#core/logger';
 import { NextFunction, Request, Response } from 'express';
 import _ from 'lodash';
-import { MetaData } from './request-logger';
+import { MetaData } from './request-logger.js';
 
 /** The error without the request body that body-parser attaches to parse errors, so it never reaches the logs. */
 function withoutRequestBody(err: Error): Error {

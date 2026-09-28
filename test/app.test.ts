@@ -1,6 +1,6 @@
 import { formatStatus, SUCCESS_STATUS } from '#core/errors';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startTestApp, TestApp } from './support/test-app';
+import { startTestApp, TestApp } from './support/test-app.js';
 
 describe('App', () => {
   let app: TestApp;

@@ -3,7 +3,7 @@ import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 import type { Client, ClientConfig, IMap, LifecycleState, ReconnectMode } from 'hazelcast-client';
 import { z } from 'zod';
-import type { Cache } from '../cache';
+import type { Cache } from '../cache.js';
 
 export interface HazelcastConfig {
   enabled: boolean;

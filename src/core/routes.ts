@@ -10,6 +10,5 @@ export default async function loadRouters(patterns: string[]): Promise<Router[]>
     .filter((file) => !file.endsWith('.d.ts'))
     .sort();
   const modules = await Promise.all(files.map((file) => import(pathToFileURL(path.resolve(file)).href)));
-  // A compiled CommonJS router file imported natively exposes its exports object as `default`
-  return modules.map((module) => (typeof module.default === 'function' ? module.default : module.default?.default));
+  return modules.map((module) => module.default);
 }

@@ -13,7 +13,7 @@ import { Writable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import winston from 'winston';
-import { startTestApp, TestApp } from '../../test/support/test-app';
+import { startTestApp, TestApp } from '../../test/support/test-app.js';
 
 const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
 const TRACEPARENT = `00-${TRACE_ID}-00f067aa0ba902b7-01`;

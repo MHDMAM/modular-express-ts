@@ -1,12 +1,15 @@
 import config from '#config';
 import { getRequestContext } from '#core/request-context';
-import jsonStringify from 'fast-safe-stringify';
+import safeStringify from 'fast-safe-stringify';
 import { resolve } from 'path';
 import winston from 'winston';
 import winstonDaily from 'winston-daily-rotate-file';
 
 // logs dir, relative paths resolve against the working directory
 const logDir: string = resolve(config.logDir);
+
+// CommonJS package whose typings declare an ES default export; `.default` is the function in both
+const jsonStringify = safeStringify.default;
 
 /** Serializes errors with their message and stack (JSON.stringify would write `{}`), and bigints as strings. */
 function replacer(_key: string, value: unknown) {
