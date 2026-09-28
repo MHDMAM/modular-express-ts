@@ -42,7 +42,10 @@ src/
     types/express.d.ts   # Express Request typings
   connectors/            # optional, one folder per connector (code, env schema, tests)
     index.ts             # registry: started before listening, closed on shutdown
-    kafka/ redis/ hazelcast/ mssql/
+    hazelcast/
+    kafka/
+    mssql/
+    redis/
   http/                  # optional outbound HTTP: HttpClient, ServiceRequester
   modules/
     health/              # example module
@@ -54,10 +57,9 @@ test/                    # cross-cutting tests and test helpers (support/)
 ```
 
 Code in one folder imports another through Node's
-[subpath imports](https://nodejs.org/api/packages.html#subpath-imports) (`#config`, `#core/*`, `#connectors`,
-`#connectors/*`, `#http/*`, defined under `imports` in `package.json`). With the `development` condition (used by
-`npm run dev`, the tests and the type checker) they resolve to `src/*.ts`; otherwise to the compiled `dist/*.js`, so the
-build needs no path rewriting.
+[subpath imports](https://nodejs.org/api/packages.html#subpath-imports) (e.g. `#config`, `#core/*`, `#connectors/*`,
+defined under `imports` in `package.json`). With the `development` condition (used by `npm run dev`, the tests and the
+type checker) they resolve to `src/*.ts`; otherwise to the compiled `dist/*.js`, so the build needs no path rewriting.
 
 ## Modules & Routing
 
@@ -73,8 +75,8 @@ the call chain, can read it with `getRequestContext()` from `#core/request-conte
 
 - Every log line written during the request gets `requestId` and `traceId` automatically. Logs are one JSON object per
   line: `{ time, level, requestId, traceId, ...fields }`; errors are serialized with their message and stack.
-- `ServiceRequester` and `kafka.send()` forward `x-request-id` and `traceparent`, and Kafka handlers run in a context
-  rebuilt from the message headers, so one id follows a request across services.
+- The ids follow a request across services: `ServiceRequester` forwards `x-request-id` and `traceparent` downstream.
+- `kafka.send()` adds the same headers to messages, and Kafka handlers run in a context rebuilt from them.
 - Request/response headers and bodies are not logged, as they may carry credentials or personal data.
 - Add request metadata once it is known with `setRequestContext()`, e.g. `setRequestContext({ userRef })` in an auth
   middleware: later logs in that request include it. New fields go in the `RequestContext` interface.
@@ -116,8 +118,7 @@ stops the app with a message listing every invalid variable. `.env.example` docu
 environment variables (e.g. Kubernetes ConfigMaps and Secrets) and never commit `.env`.
 
 Core settings are in `src/config.ts` (`import config from '#config'` gives typed values). Each connector reads its own
-variables next to its code (`KAFKA_*` in `#connectors/kafka/kafka`, ...), so removing a connector removes its
-configuration.
+variables (`<NAME>_*`) next to its code in `src/connectors/<name>/`, so removing a connector removes its configuration.
 
 Booleans accept `true`/`false`, `1`/`0` or `yes`/`no`; lists are comma-separated; unset or empty variables use the
 default.
