@@ -90,8 +90,8 @@ export default class ServiceRequester {
     if (response.success) {
       return {
         success: true,
-        data: response.data.data as T,
-        headers: _.omit(response.data.headers, ['date', 'connection']) as H,
+        data: response.data?.data as T,
+        headers: _.omit(response.data?.headers, ['date', 'connection']) as H,
       };
     }
     const reason: HttpResponse = response.reason;

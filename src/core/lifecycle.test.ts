@@ -21,7 +21,7 @@ function trackOrder(...connectors: FakeConnector[]) {
 }
 
 /** Log entries (the object passed to the logger) for a given `info` message. */
-function logged(spy: ReturnType<typeof vi.spyOn>, info: string) {
+function logged(spy: { mock: { calls: unknown[][] } }, info: string) {
   return spy.mock.calls.map(([entry]) => entry as Record<string, unknown>).filter((entry) => entry?.info === info);
 }
 

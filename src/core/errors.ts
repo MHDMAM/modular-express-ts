@@ -18,7 +18,6 @@ export const SUCCESS_STATUS = formatStatus(0);
 
 export class HttpException extends Error {
   public httpCode: number;
-  public message: string;
   public status: string | number;
   public data?: any;
 
@@ -26,7 +25,6 @@ export class HttpException extends Error {
     super(message);
     this.httpCode = httpCode;
     this.status = status;
-    if (message) this.message = message;
     if (data) this.data = data;
     Error.captureStackTrace(this, this.constructor);
   }

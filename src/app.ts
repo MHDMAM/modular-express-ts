@@ -19,7 +19,7 @@ class App {
   private env: string;
   private ssl: boolean;
   private port: string | number;
-  private server: http.Server;
+  private server?: http.Server;
   private shuttingDown = false;
 
   /** Creates the app: middleware, auto-loaded module routes and error handling. */
