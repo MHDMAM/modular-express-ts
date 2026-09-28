@@ -1,14 +1,16 @@
-import config from '#config';
-import logger from '#core/logger';
-import { parseTraceparent, runWithContext } from '#core/request-context';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import config from '#config';
+import logger from '#core/logger';
+import { parseTraceparent, runWithContext } from '#core/request-context';
+
 import {
+  backoffDelayMs,
   CIRCUIT_OPEN,
   CircuitState,
   HttpClient,
-  backoffDelayMs,
   retryAfterMs,
   type HttpResponse,
 } from './http-client.js';

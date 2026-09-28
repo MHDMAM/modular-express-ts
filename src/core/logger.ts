@@ -1,9 +1,10 @@
-import config from '#config';
-import { getRequestContext } from '#core/request-context';
-import safeStringify from 'fast-safe-stringify';
 import { resolve } from 'path';
+import safeStringify from 'fast-safe-stringify';
 import winston from 'winston';
 import winstonDaily from 'winston-daily-rotate-file';
+
+import config from '#config';
+import { getRequestContext } from '#core/request-context';
 
 // logs dir, relative paths resolve against the working directory
 const logDir: string = resolve(config.logDir);

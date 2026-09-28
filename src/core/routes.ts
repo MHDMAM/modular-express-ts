@@ -1,7 +1,7 @@
-import type { Router } from 'express';
 import { globSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Router } from 'express';
 
 /** Imports every router file matching the glob patterns (sorted by path) and returns their default exports. */
 export default async function loadRouters(patterns: string[]): Promise<Router[]> {

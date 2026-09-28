@@ -1,4 +1,5 @@
 import logger from '#core/logger';
+
 import App from './app.js';
 
 let app: App | undefined;

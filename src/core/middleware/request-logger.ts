@@ -1,7 +1,8 @@
+import { NextFunction, Request, Response } from 'express';
+
 import { SUCCESS_STATUS } from '#core/errors';
 import logger from '#core/logger';
 import { contextFromHeaders, runWithContext } from '#core/request-context';
-import { NextFunction, Request, Response } from 'express';
 
 export interface MetaData {
   processingTime?: number;

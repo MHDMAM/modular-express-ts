@@ -1,9 +1,10 @@
+import type { KafkaJS } from '@confluentinc/kafka-javascript';
+import { z } from 'zod';
+
 import config, { envBoolean, envList, envOptional, envString, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 import { contextFromHeaders, contextHeaders, runWithContext } from '#core/request-context';
-import type { KafkaJS } from '@confluentinc/kafka-javascript';
-import { z } from 'zod';
 
 export interface KafkaConfig {
   enabled: boolean;

@@ -1,6 +1,8 @@
-import config from '#config';
 import http from 'http';
 import { AddressInfo } from 'net';
+
+import config from '#config';
+
 import App from '../../src/app.js';
 
 export interface TestApp {

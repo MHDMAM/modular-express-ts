@@ -1,7 +1,9 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+
 import registry from '#connectors';
 import { formatStatus } from '#core/errors';
 import { initConnectors } from '#core/lifecycle';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+
 import { fakeConnector } from '../../../test/support/fake-connector.js';
 import { startTestApp, TestApp } from '../../../test/support/test-app.js';
 

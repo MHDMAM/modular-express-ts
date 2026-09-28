@@ -1,7 +1,9 @@
+import _ from 'lodash';
+
 import config from '#config';
 import logger from '#core/logger';
 import { contextHeaders } from '#core/request-context';
-import _ from 'lodash';
+
 import {
   AxiosRequestConfig,
   CircuitState,

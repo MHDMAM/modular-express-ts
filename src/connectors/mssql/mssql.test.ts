@@ -1,7 +1,9 @@
-import logger from '#core/logger';
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MssqlConfig, MssqlConnector, mssqlConfigFromEnv } from './mssql.js';
+
+import logger from '#core/logger';
+
+import { MssqlConfig, mssqlConfigFromEnv, MssqlConnector } from './mssql.js';
 
 /** Set when the mocked client library is first imported. */
 const library = vi.hoisted(() => ({ loaded: false }));

@@ -1,3 +1,8 @@
+import { Writable } from 'node:stream';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import winston from 'winston';
+
 import { formatStatus } from '#core/errors';
 import logger from '#core/logger';
 import {
@@ -9,10 +14,7 @@ import {
   runWithContext,
   setRequestContext,
 } from '#core/request-context';
-import { Writable } from 'node:stream';
-import { setTimeout as sleep } from 'node:timers/promises';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import winston from 'winston';
+
 import { startTestApp, TestApp } from '../../test/support/test-app.js';
 
 const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';

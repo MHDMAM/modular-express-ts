@@ -1,6 +1,7 @@
+import { NextFunction, Request, Response } from 'express';
+
 import { HttpException } from '#core/errors';
 import { connectorStatus } from '#core/lifecycle';
-import { NextFunction, Request, Response } from 'express';
 
 export default class HealthController {
   /** Liveness: the process is up and serving requests. */

@@ -1,8 +1,9 @@
+import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
+import { z } from 'zod';
+
 import { envBoolean, envNumber, envOptional, envString, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
-import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
-import { z } from 'zod';
 
 export interface MssqlConfig extends PoolConfig {
   enabled: boolean;

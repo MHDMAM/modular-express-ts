@@ -1,19 +1,20 @@
-import { HttpException } from '#core/errors';
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 import {
   BrokenCircuitError,
+  circuitBreaker,
   CircuitBreakerPolicy,
   CircuitState,
   ConsecutiveBreaker,
   DelegateBackoff,
+  handleWhen,
   IPolicy,
   IRetryBackoffContext,
-  circuitBreaker,
-  handleWhen,
   noop,
   retry,
   wrap,
 } from 'cockatiel';
+
+import { HttpException } from '#core/errors';
 
 export { AxiosRequestConfig, CircuitState };
 

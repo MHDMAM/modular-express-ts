@@ -1,5 +1,7 @@
 import { Router } from 'express';
+
 import HealthController from './health.controller.js';
+
 let router = Router();
 
 router.route('/health').get(HealthController.check);

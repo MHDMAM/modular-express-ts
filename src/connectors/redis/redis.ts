@@ -1,8 +1,10 @@
+import type { createClient } from 'redis';
+import { z } from 'zod';
+
 import { envBoolean, envString, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
-import type { createClient } from 'redis';
-import { z } from 'zod';
+
 import type { Cache } from '../cache.js';
 
 export interface RedisConfig {

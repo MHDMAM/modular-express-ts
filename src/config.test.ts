@@ -1,6 +1,7 @@
-import { ConfigError, envBoolean, envList, envNumber, envOptional, envString, loadConfig, parseEnv } from '#config';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+
+import { ConfigError, envBoolean, envList, envNumber, envOptional, envString, loadConfig, parseEnv } from '#config';
 
 const schema = z.object({
   FLAG: envBoolean(false),

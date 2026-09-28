@@ -1,5 +1,7 @@
-import { formatStatus, SUCCESS_STATUS } from '#core/errors';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { formatStatus, SUCCESS_STATUS } from '#core/errors';
+
 import { startTestApp, TestApp } from './support/test-app.js';
 
 describe('App', () => {

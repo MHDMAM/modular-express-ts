@@ -1,5 +1,6 @@
-import type { Connector } from '#core/lifecycle';
 import { vi } from 'vitest';
+
+import type { Connector } from '#core/lifecycle';
 
 export type FakeConnector = Connector & { calls: string[]; setReady(ready: boolean): void };
 
