@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "template": {
+    "name": "modular-express-ts",
+    "url": "https://github.com/MHDMAM/modular-express-ts"
+  },
+  "features": [
+    {
+      "id": "http",
+      "label": "Outbound HTTP",
+      "hint": "ServiceRequester/HttpClient with retries and circuit breaker (axios, cockatiel)",
+      "default": true,
+      "files": ["src/http"],
+      "dependencies": ["axios", "cockatiel"],
+      "imports": ["#http/*"],
+      "edits": [
+        { "file": "README.md", "removeSection": "Outbound HTTP" },
+        {
+          "file": "README.md",
+          "removeLine": "  http/                  # optional outbound HTTP: HttpClient, ServiceRequester"
+        },
+        { "file": "README.md", "removeBullet": "- The ids follow a request across services: `ServiceRequester`" }
+      ]
+    },
+    {
+      "id": "mssql",
+      "label": "MSSQL",
+      "hint": "connection pool with schema-aware query inputs (mssql)",
+      "default": false,
+      "files": ["src/connectors/mssql"],
+      "dependencies": ["mssql"],
+      "devDependencies": ["@types/mssql"],
+      "edits": [
+        { "file": "src/connectors/index.ts", "removeLine": "import mssql from './mssql/mssql.js';" },
+        {
+          "file": "src/connectors/index.ts",
+          "removeListItem": { "line": "const connectors: Connector[] = [", "item": "mssql" }
+        },
+        { "file": ".env.example", "removeBlock": "# MSSQL" },
+        { "file": "README.md", "removeLine": "    mssql/" },
+        { "file": "README.md", "removeBullet": "- **MSSQL**" }
+      ]
+    },
+    {
+      "id": "kafka",
+      "label": "Kafka",
+      "hint": "producer, topic handlers, dead-letter topic (Confluent's official client)",
+      "default": false,
+      "files": ["src/connectors/kafka"],
+      "dependencies": ["@confluentinc/kafka-javascript"],
+      "edits": [
+        { "file": "src/connectors/index.ts", "removeLine": "import kafka from './kafka/kafka.js';" },
+        {
+          "file": "src/connectors/index.ts",
+          "removeListItem": { "line": "const connectors: Connector[] = [", "item": "kafka" }
+        },
+        { "file": ".env.example", "removeBlock": "# Kafka" },
+        { "file": "README.md", "removeLine": "    kafka/" },
+        { "file": "README.md", "removeBullet": "- **Kafka**" },
+        { "file": "README.md", "removeBullet": "- `kafka.send()` adds the same headers" }
+      ]
+    },
+    {
+      "id": "hazelcast",
+      "label": "Hazelcast",
+      "hint": "distributed maps and cache (hazelcast-client)",
+      "default": false,
+      "files": ["src/connectors/hazelcast"],
+      "dependencies": ["hazelcast-client"],
+      "edits": [
+        { "file": "src/connectors/index.ts", "removeLine": "import hazelcast from './hazelcast/hazelcast.js';" },
+        {
+          "file": "src/connectors/index.ts",
+          "removeListItem": { "line": "const connectors: Connector[] = [", "item": "hazelcast" }
+        },
+        { "file": ".env.example", "removeBlock": "# Hazelcast" },
+        { "file": "README.md", "removeLine": "    hazelcast/" },
+        { "file": "README.md", "removeBullet": "- **Hazelcast**" }
+      ]
+    },
+    {
+      "id": "redis",
+      "label": "Redis",
+      "hint": "Redis/Valkey cache (redis)",
+      "default": false,
+      "files": ["src/connectors/redis"],
+      "dependencies": ["redis"],
+      "edits": [
+        { "file": "src/connectors/index.ts", "removeLine": "import redis from './redis/redis.js';" },
+        {
+          "file": "src/connectors/index.ts",
+          "removeListItem": { "line": "const connectors: Connector[] = [", "item": "redis" }
+        },
+        { "file": ".env.example", "removeBlock": "# Redis" },
+        { "file": "README.md", "removeLine": "    redis/" },
+        { "file": "README.md", "removeBullet": "- **Redis**" }
+      ]
+    }
+  ],
+  "whenNoneKept": [
+    { "features": ["hazelcast", "redis"], "files": ["src/connectors/cache.ts"] },
+    {
+      "features": ["mssql", "kafka", "hazelcast", "redis"],
+      "edits": [{ "file": "README.md", "removeSection": "Optional Connectors" }]
+    }
+  ],
+  "project": {
+    "removeFiles": ["LICENSE", "scaffold", "test/scaffold.test.ts"],
+    "removeReadmeSections": ["Creating a Project", "License"]
+  }
+}

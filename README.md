@@ -3,6 +3,20 @@
 Express + TypeScript API boilerplate with auto-loaded modules, structured logging, a consistent response envelope and
 optional MSSQL, Kafka, Hazelcast and Redis connectors.
 
+## Creating a Project
+
+Copy the template (GitHub's "Use this template", or `npx degit MHDMAM/modular-express-ts my-app`), then keep only the
+features you need:
+
+```sh
+node scaffold/scaffold.ts --name my-app --features http,redis   # or --features none
+npm install
+```
+
+Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis` (see `scaffold/features.json`). The others are removed with
+their code, tests, dependencies, environment variables and documentation; the script also renames the project and then
+removes itself.
+
 ## Quick Start
 
 ```sh
