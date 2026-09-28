@@ -34,11 +34,11 @@ const fake = {
 /** Set when the mocked client library is first imported. */
 const library = vi.hoisted(() => ({ loaded: false }));
 
+// Only `Client` is used at runtime; the real library is not loaded (it takes seconds on a cold install)
 vi.mock(
   'hazelcast-client',
-  async (importOriginal) =>
+  () =>
     (library.loaded = true) && {
-      ...(await importOriginal<object>()),
       Client: {
         newHazelcastClient: vi.fn(async (clientConfig: any) => {
           fake.clientConfig = clientConfig;
