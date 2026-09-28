@@ -1,4 +1,4 @@
-import config from '@/config';
+import config from '#config';
 
 const STATUS_PREFIX = config.statusPrefix;
 const VERSION_1 = 1;

@@ -1,4 +1,4 @@
-import logger from '@core/logger';
+import logger from '#core/logger';
 import App from './app';
 
 let app: App | undefined;

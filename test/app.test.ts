@@ -1,4 +1,4 @@
-import { formatStatus, SUCCESS_STATUS } from '@core/errors';
+import { formatStatus, SUCCESS_STATUS } from '#core/errors';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTestApp, TestApp } from './support/test-app';
 

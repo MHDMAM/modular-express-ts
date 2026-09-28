@@ -1,6 +1,6 @@
-import config from '@/config';
-import registry from '@/connectors';
-import logger from '@core/logger';
+import config from '#config';
+import registry from '#connectors';
+import logger from '#core/logger';
 
 /**
  * An external dependency (message broker, cache, database, ...) with an explicit lifecycle.

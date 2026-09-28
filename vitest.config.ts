@@ -1,18 +1,8 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
-const src = (path: string) => fileURLToPath(new URL(`./src/${path}`, import.meta.url));
-
 export default defineConfig({
-  resolve: {
-    // Mirrors the `paths` in tsconfig.json
-    alias: [
-      { find: /^@\/(.*)$/, replacement: src('$1') },
-      { find: /^@core\/(.*)$/, replacement: src('core/$1') },
-      { find: /^@connectors\/(.*)$/, replacement: src('connectors/$1') },
-      { find: /^@http\/(.*)$/, replacement: src('http/$1') },
-    ],
-  },
+  // Resolves the `#…` subpath imports in package.json to src/*.ts instead of dist/*.js
+  ssr: { resolve: { conditions: ['development'] } },
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
     env: { NODE_ENV: 'test' },

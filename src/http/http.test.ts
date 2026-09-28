@@ -1,6 +1,6 @@
-import config from '@/config';
-import logger from '@core/logger';
-import { parseTraceparent, runWithContext } from '@core/request-context';
+import config from '#config';
+import logger from '#core/logger';
+import { parseTraceparent, runWithContext } from '#core/request-context';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';

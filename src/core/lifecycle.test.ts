@@ -6,8 +6,8 @@ import {
   initConnectors,
   startConnectorMonitor,
   stopConnectorMonitor,
-} from '@core/lifecycle';
-import logger from '@core/logger';
+} from '#core/lifecycle';
+import logger from '#core/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeConnector, fakeConnector } from '../../test/support/fake-connector';
 

@@ -18,7 +18,7 @@ curl localhost:3000/api/v1/health
 | ---------------------- | ------------------------------------------------------------ |
 | `npm run dev`          | Start in watch mode (tsx), loading `.env` if present         |
 | `npm run debug`        | Same as `dev` with the Node inspector enabled                |
-| `npm run build`        | Clean `dist/`, compile with `tsc` and rewrite path aliases   |
+| `npm run build`        | Clean `dist/` and compile with `tsc`                         |
 | `npm start`            | Run the compiled app from `dist/`, loading `.env` if present |
 | `npm run typecheck`    | Type-check without emitting                                  |
 | `npm run format`       | Format with Prettier (imports organised automatically)       |
@@ -53,6 +53,12 @@ src/
 test/                    # cross-cutting tests and test helpers (support/)
 ```
 
+Code in one folder imports another through Node's
+[subpath imports](https://nodejs.org/api/packages.html#subpath-imports) (`#config`, `#core/*`, `#connectors`,
+`#connectors/*`, `#http/*`, defined under `imports` in `package.json`). With the `development` condition (used by
+`npm run dev`, the tests and the type checker) they resolve to `src/*.ts`; otherwise to the compiled `dist/*.js`, so the
+build needs no path rewriting.
+
 ## Modules & Routing
 
 Every file matching `ROUTES_GLOB` (default `modules/**/*.routes.{js,ts}`) is loaded automatically and its default export
@@ -63,7 +69,7 @@ Every file matching `ROUTES_GLOB` (default `modules/**/*.routes.{js,ts}`) is loa
 
 Every request runs inside a request context (Node's `AsyncLocalStorage`) holding a `requestId` (from `x-request-id`, or
 generated) and a W3C `traceId` (from `traceparent`, or generated). Anything running during the request, however deep in
-the call chain, can read it with `getRequestContext()` from `@core/request-context`, without passing ids around.
+the call chain, can read it with `getRequestContext()` from `#core/request-context`, without passing ids around.
 
 - Every log line written during the request gets `requestId` and `traceId` automatically. Logs are one JSON object per
   line: `{ time, level, requestId, traceId, ...fields }`; errors are serialized with their message and stack.
@@ -109,8 +115,8 @@ stops the app with a message listing every invalid variable. `.env.example` docu
 `npm run dev` and `npm start` load `.env` when present (Node's `--env-file-if-exists`). In deployments, set real
 environment variables (e.g. Kubernetes ConfigMaps and Secrets) and never commit `.env`.
 
-Core settings are in `src/config.ts` (`import config from '@/config'` gives typed values). Each connector reads its own
-variables next to its code (`KAFKA_*` in `@connectors/kafka/kafka`, ...), so removing a connector removes its
+Core settings are in `src/config.ts` (`import config from '#config'` gives typed values). Each connector reads its own
+variables next to its code (`KAFKA_*` in `#connectors/kafka/kafka`, ...), so removing a connector removes its
 configuration.
 
 Booleans accept `true`/`false`, `1`/`0` or `yes`/`no`; lists are comma-separated; unset or empty variables use the
@@ -120,25 +126,25 @@ default.
 
 All are disabled by default.
 
-- **MSSQL** (`@connectors/mssql/mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`.
+- **MSSQL** (`#connectors/mssql/mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`.
   `executeQuery(query, inputs, tables)` runs parameterised queries (`@name`); inputs named after a column of `tables`
   get that column's SQL type and length from the schema loaded on startup. `executeSP(procedure, inputs, outputs)` runs
   stored procedures. Parameter values are never logged.
-- **Kafka** (`@connectors/kafka/kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`.
+- **Kafka** (`#connectors/kafka/kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`.
   Register topic handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if
   handlers exist) and publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to
   `<topic>.dlq` (`KAFKA_DEAD_LETTER_SUFFIX`, empty to retry instead). Set `KAFKA_SSL` and `KAFKA_SASL_MECHANISM`,
   `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` for managed Kafka.
-- **Hazelcast** (`@connectors/hazelcast/hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements
+- **Hazelcast** (`#connectors/hazelcast/hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements
   `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME`, and `map(name)` returns any
   distributed map. Other client options can be added in `hazelcastConfigFromEnv`.
-- **Redis** (`@connectors/redis/redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache`
+- **Redis** (`#connectors/redis/redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache`
   with JSON values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for
   other commands.
 
 ## Outbound HTTP
 
-Create one `ServiceRequester` (`@http/service-requester`) per downstream service and reuse it:
+Create one `ServiceRequester` (`#http/service-requester`) per downstream service and reuse it:
 
 ```ts
 const users = new ServiceRequester('users', { baseURL: 'https://users.internal' });
@@ -155,7 +161,7 @@ if (!res.success) return next(HttpException.internal());
 - Logs method, URL, status and duration only, never headers or bodies.
 - Never throws: returns `{ success: true, data, headers }` or `{ success: false, reason: { status, code, message } }`.
 
-`HttpClient` (`@http/http-client`) provides the same retry and circuit breaker options without the service conventions.
+`HttpClient` (`#http/http-client`) provides the same retry and circuit breaker options without the service conventions.
 Both are built on [cockatiel](https://github.com/connor4312/cockatiel) and axios.
 
 ## Maintenance

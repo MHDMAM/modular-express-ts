@@ -1,4 +1,4 @@
-import { HttpException } from '@core/errors';
+import { HttpException } from '#core/errors';
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 import {
   BrokenCircuitError,

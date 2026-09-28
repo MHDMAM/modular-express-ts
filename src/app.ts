@@ -1,9 +1,9 @@
-import config from '@/config';
-import { closeConnectors, initConnectors, startConnectorMonitor } from '@core/lifecycle';
-import logger from '@core/logger';
-import errorMiddleware from '@core/middleware/error';
-import notFoundMiddleware from '@core/middleware/not-found';
-import { requestLogger } from '@core/middleware/request-logger';
+import config from '#config';
+import { closeConnectors, initConnectors, startConnectorMonitor } from '#core/lifecycle';
+import logger from '#core/logger';
+import errorMiddleware from '#core/middleware/error';
+import notFoundMiddleware from '#core/middleware/not-found';
+import { requestLogger } from '#core/middleware/request-logger';
 import compression from 'compression';
 import express from 'express';
 import { readFileSync } from 'fs';
@@ -12,7 +12,7 @@ import http from 'http';
 import https from 'https';
 import { join, resolve } from 'path';
 
-import loadRouters from '@core/routes';
+import loadRouters from '#core/routes';
 
 class App {
   private app: express.Application;

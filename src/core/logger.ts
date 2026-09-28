@@ -1,5 +1,5 @@
-import config from '@/config';
-import { getRequestContext } from '@core/request-context';
+import config from '#config';
+import { getRequestContext } from '#core/request-context';
 import jsonStringify from 'fast-safe-stringify';
 import { resolve } from 'path';
 import winston from 'winston';

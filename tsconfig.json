@@ -5,33 +5,16 @@
     "lib": ["ES2023"],
     "typeRoots": ["node_modules/@types"],
     "allowSyntheticDefaultImports": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "nodenext",
     "module": "node20",
     "pretty": true,
-    "outDir": "dist",
     "allowJs": true,
     "noEmit": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "importHelpers": true,
-    "baseUrl": "src",
-    "paths": {
-      "@/*": ["*"],
-      "@core/*": ["core/*"],
-      "@connectors/*": ["connectors/*"],
-      "@http/*": ["http/*"]
-    }
-  },
-  "tsc-alias": {
-    "replacers": {
-      "verbose": true,
-      "base-url": {
-        "enabled": false
-      }
-    }
+    "customConditions": ["development"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "logs"]

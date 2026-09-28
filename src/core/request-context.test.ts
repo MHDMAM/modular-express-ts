@@ -1,5 +1,5 @@
-import { formatStatus } from '@core/errors';
-import logger from '@core/logger';
+import { formatStatus } from '#core/errors';
+import logger from '#core/logger';
 import {
   contextFromHeaders,
   contextHeaders,
@@ -8,7 +8,7 @@ import {
   parseTraceparent,
   runWithContext,
   setRequestContext,
-} from '@core/request-context';
+} from '#core/request-context';
 import { Writable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';

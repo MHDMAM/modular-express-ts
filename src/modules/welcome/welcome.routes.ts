@@ -1,4 +1,4 @@
-import config from '@/config';
+import config from '#config';
 import { Request, Response, Router } from 'express';
 
 let router = Router();

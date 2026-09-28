@@ -1,4 +1,4 @@
-import config from '@/config';
+import config from '#config';
 import http from 'http';
 import { AddressInfo } from 'net';
 import App from '../../src/app';

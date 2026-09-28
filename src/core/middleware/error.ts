@@ -1,5 +1,5 @@
-import { HttpException } from '@core/errors';
-import logger from '@core/logger';
+import { HttpException } from '#core/errors';
+import logger from '#core/logger';
 import { NextFunction, Request, Response } from 'express';
 import _ from 'lodash';
 import { MetaData } from './request-logger';

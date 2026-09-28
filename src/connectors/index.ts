@@ -1,4 +1,4 @@
-import type { Connector } from '@core/lifecycle';
+import type { Connector } from '#core/lifecycle';
 import hazelcast from './hazelcast/hazelcast';
 import kafka from './kafka/kafka';
 import mssql from './mssql/mssql';
