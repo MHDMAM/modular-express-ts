@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import logger from '#core/logger';
@@ -44,9 +45,28 @@ const parameterRows = [
   column('dbo.usp_create_user', 'code', 'nvarchar', 20),
 ];
 
-class FakeRequest {
+class FakeRequest extends EventEmitter {
   /** Set when created through the driver's `Request` constructor (statements with their own timeout). */
   overrides?: unknown;
+  /** Rows of a streamed query; an `Error` among them fails the stream at that point. */
+  static streamed: unknown[] = [];
+  /** Like the driver: rows are pushed to the stream, then `done` is emitted (after an error too). */
+  toReadableStream = vi.fn(() => {
+    const emitDone = () => this.emit('done');
+    return Readable.from(
+      (async function* () {
+        for (const row of FakeRequest.streamed) {
+          if (row instanceof Error) {
+            emitDone();
+            throw row;
+          }
+          yield row;
+        }
+        emitDone();
+      })(),
+    );
+  });
+  cancel = vi.fn();
   inputs: unknown[][] = [];
   outputs: unknown[][] = [];
   input = vi.fn((...args: unknown[]) => (this.inputs.push(args), this));
@@ -352,6 +372,68 @@ describe('MssqlConnector', () => {
         throw new Error('deadlock victim');
       }),
     ).rejects.toThrow('deadlock victim');
+  });
+
+  it('streams rows with typed inputs and its own timeout, without cancelling a finished query', async () => {
+    const mssql = await connected();
+    FakeRequest.streamed = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+    const rows: { id: number }[] = [];
+    const stream = mssql.streamQuery<{ id: number }>('SELECT id FROM users WHERE email = @email', { email: 'a@b.c' }, [
+      'users',
+    ]);
+    for await (const row of stream) rows.push(row);
+
+    expect(rows).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
+    expect(lastRequest().query).toHaveBeenCalledWith('SELECT id FROM users WHERE email = @email');
+    expect(lastRequest().cancel).not.toHaveBeenCalled();
+
+    for await (const _row of mssql.streamQuery('SELECT 1', {}, [], { timeoutMs: 5_000 })) break;
+    expect(lastRequest().overrides).toEqual({ requestTimeout: 5_000 });
+  });
+
+  it('cancels a streamed query when the consumer stops early', async () => {
+    const mssql = await connected();
+    FakeRequest.streamed = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+    for await (const row of mssql.streamQuery<{ id: number }>('SELECT id FROM users')) {
+      if (row.id === 2) break;
+    }
+
+    expect(lastRequest().cancel).toHaveBeenCalledOnce();
+  });
+
+  it('rethrows and logs a streamed query failing midway', async () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const mssql = await connected();
+    FakeRequest.streamed = [{ id: 1 }, new Error('connection lost')];
+
+    const rows: unknown[] = [];
+    const consume = async () => {
+      for await (const row of mssql.streamQuery('SELECT id FROM users')) rows.push(row);
+    };
+
+    await expect(consume()).rejects.toThrow('connection lost');
+    expect(rows).toEqual([{ id: 1 }]);
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ info: 'MSSQL statement failed', rows: 1 }));
+    expect(lastRequest().cancel).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('streams on the connection of a transaction', async () => {
+    const mssql = await connected();
+    FakeRequest.streamed = [{ id: 1 }];
+
+    const rows = await mssql.transaction(async (tx) => {
+      const collected: unknown[] = [];
+      for await (const row of tx.streamQuery('SELECT id FROM users')) collected.push(row);
+      return collected;
+    });
+
+    expect(rows).toEqual([{ id: 1 }]);
+    expect(FakePool.last.transactions[0].request).toHaveBeenCalledOnce();
+    expect(FakePool.last.transactions[0].commit).toHaveBeenCalled();
   });
 
   it('rethrows failed statements and logs them without parameter values', async () => {

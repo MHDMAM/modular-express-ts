@@ -39,7 +39,7 @@ export interface StatementOptions {
 export type IsolationLevel = 'READ_UNCOMMITTED' | 'READ_COMMITTED' | 'REPEATABLE_READ' | 'SERIALIZABLE' | 'SNAPSHOT';
 
 /** The statements available inside `transaction()`. */
-export type MssqlStatements = Pick<MssqlConnector, 'executeQuery' | 'executeSP'>;
+export type MssqlStatements = Pick<MssqlConnector, 'executeQuery' | 'executeSP' | 'streamQuery'>;
 
 interface ColumnRow {
   SchemaName: string;
@@ -217,6 +217,23 @@ export class MssqlConnector implements Connector {
   }
 
   /**
+   * Like `executeQuery`, for results too large to hold in memory: yields the rows one by one as the server sends them,
+   * pausing the driver while the consumer is busy. Leaving the loop early cancels the query.
+   *
+   * ```ts
+   * for await (const order of mssql.streamQuery<Order>('SELECT * FROM orders WHERE year = @year', { year })) { ... }
+   * ```
+   */
+  streamQuery<T = unknown>(
+    query: string,
+    inputs: Record<string, unknown> = {},
+    tables: string[] = [],
+    options: StatementOptions = {},
+  ): AsyncGenerator<T, void, undefined> {
+    return this.stream<T>(undefined, query, inputs, tables, options);
+  }
+
+  /**
    * Runs `work` in a transaction: committed when it resolves, rolled back when it throws. Its statements share the
    * transaction's single connection, so run them one after the other (no `Promise.all`).
    *
@@ -236,6 +253,7 @@ export class MssqlConnector implements Connector {
         executeQuery: (query, inputs, tables, options) => this.query(transaction, query, inputs, tables, options),
         executeSP: (procedure, inputs, outputs, options) =>
           this.procedure(transaction, procedure, inputs, outputs, options),
+        streamQuery: (query, inputs, tables, options) => this.stream(transaction, query, inputs, tables, options),
       });
       await transaction.commit();
       logger.debug({ info: 'MSSQL transaction committed', durationMs: Date.now() - start });
@@ -275,6 +293,38 @@ export class MssqlConnector implements Connector {
     this.addParameters(request, 'input', typedInputs);
     this.addParameters(request, 'output', typedOutputs);
     return this.run<IProcedureResult<T>>({ procedure }, () => request.execute<T>(procedure));
+  }
+
+  private async *stream<T>(
+    transaction: Transaction | undefined,
+    query: string,
+    inputs: Record<string, unknown> = {},
+    tables: string[] = [],
+    options: StatementOptions = {},
+  ): AsyncGenerator<T, void, undefined> {
+    const typedInputs = this.typed(inputs, await this.tableColumns(tables));
+    const request = this.request(transaction, options);
+    this.addParameters(request, 'input', typedInputs);
+    const rows = request.toReadableStream();
+    const start = Date.now();
+    let count = 0;
+    let done = false;
+    request.once('done', () => (done = true));
+    // In stream mode the promise always resolves: failures are emitted on the stream
+    void request.query(query);
+    try {
+      for await (const row of rows) {
+        count++;
+        yield row as T;
+      }
+      logger.debug({ info: 'MSSQL statement', query, rows: count, durationMs: Date.now() - start });
+    } catch (error) {
+      logger.error({ info: 'MSSQL statement failed', query, rows: count, durationMs: Date.now() - start, error });
+      throw error;
+    } finally {
+      // The consumer left the loop early: stop the query instead of letting the server send the rest
+      if (!done) request.cancel();
+    }
   }
 
   private connectedPool(): ConnectionPool {
