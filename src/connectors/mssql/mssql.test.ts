@@ -36,6 +36,7 @@ const schemaRows = [
   column('dbo.users', 'version', 'timestamp', 8), // no type factory in the driver
   column('dbo.orders', 'id', 'int', 4, 10, 0),
   column('audit.orders', 'id', 'bigint', 8, 19, 0),
+  column('audit.trail', 'id', 'bigint', 8, 19, 0),
 ];
 
 /** Parameters returned by the procedure parameters query. */
@@ -49,6 +50,8 @@ const parameterRows = [
 class FakeRequest extends EventEmitter {
   /** Set when created through the driver's `Request` constructor (statements with their own timeout). */
   overrides?: unknown;
+  /** The connected user's default schema, as returned with the schema. */
+  static defaultSchema: string | null = 'dbo';
   /** Rows of a streamed query; an `Error` among them fails the stream at that point. */
   static streamed: unknown[] = [];
   /** Like the driver: rows are pushed to the stream, then `done` is emitted (after an error too). */
@@ -77,7 +80,9 @@ class FakeRequest extends EventEmitter {
       ? { recordset: schemaRows, rowsAffected: [schemaRows.length] }
       : command.includes('sys.parameters')
         ? { recordset: parameterRows, rowsAffected: [parameterRows.length] }
-        : { recordset: [{ id: 1 }], rowsAffected: [1] },
+        : command.includes('AS DefaultSchema')
+          ? { recordset: [{ DefaultSchema: FakeRequest.defaultSchema }], rowsAffected: [1] }
+          : { recordset: [{ id: 1 }], rowsAffected: [1] },
   );
   execute = vi.fn(async (_procedure: string) => ({ recordset: [], rowsAffected: [0], output: {}, returnValue: 0 }));
 }
@@ -146,12 +151,12 @@ vi.mock('mssql', () => {
 
 const baseConfig: MssqlConfig = { enabled: true, server: 'db', database: 'app', user: 'u', password: 'p' };
 
-/** A connected connector; by default its background schema load (two queries) has finished too. */
+/** A connected connector; by default its background schema load (three queries) has finished too. */
 async function connected({ schemaLoaded = true } = {}) {
   const mssql = new MssqlConnector(baseConfig);
   await mssql.init();
   if (schemaLoaded) {
-    const loaded = () => expect(FakePool.last.requests.at(1)?.query.mock.results[0]?.type).toBe('return');
+    const loaded = () => expect(FakePool.last.requests.at(2)?.query.mock.results[0]?.type).toBe('return');
     await vi.waitFor(loaded, { interval: 1 });
   }
   return mssql;
@@ -256,17 +261,32 @@ describe('MssqlConnector', () => {
     expect(lastRequest().inputs).toEqual([['pin_hash', { type: 'Binary', args: [4] }, null]]);
   });
 
-  it('resolves tables by schema, and rejects unknown and ambiguous ones', async () => {
+  it('resolves a table without schema like the server: default schema, then dbo', async () => {
     const mssql = await connected();
+    const typeOfId = async (table: string) => {
+      await mssql.executeQuery('SELECT 1', { id: 1 }, [table]);
+      return (lastRequest().inputs[0][1] as { type: string }).type;
+    };
 
-    await mssql.executeQuery('SELECT 1', { id: 1 }, ['[audit].[orders]']);
-    expect(lastRequest().inputs).toEqual([['id', { type: 'BigInt', args: [] }, 1]]);
+    expect(await typeOfId('[audit].[orders]')).toBe('BigInt');
+    expect(await typeOfId('DBO.Orders')).toBe('Int');
+    expect(await typeOfId('orders')).toBe('Int');
+    // Not in dbo: the server would not find it either
+    await expect(typeOfId('trail')).rejects.toThrow('unknown table or view "trail"');
+    await expect(typeOfId('nope')).rejects.toThrow('unknown table or view "nope"');
+  });
 
-    await mssql.executeQuery('SELECT 1', { id: 1 }, ['DBO.Orders']);
-    expect(lastRequest().inputs).toEqual([['id', { type: 'Int', args: [] }, 1]]);
+  it('looks in the default schema of the connected user first', async () => {
+    FakeRequest.defaultSchema = 'Audit';
+    const mssql = await connected();
+    FakeRequest.defaultSchema = 'dbo';
 
-    await expect(mssql.executeQuery('SELECT 1', { id: 1 }, ['orders'])).rejects.toThrow('several schemas');
-    await expect(mssql.executeQuery('SELECT 1', { id: 1 }, ['nope'])).rejects.toThrow('unknown table or view "nope"');
+    await mssql.executeQuery('SELECT 1', { id: 1, email: 'a@b.c' }, ['orders', 'trail', 'users']);
+
+    expect(lastRequest().inputs).toEqual([
+      ['id', { type: 'BigInt', args: [] }, 1],
+      ['email', { type: 'VarChar', args: [100] }, 'a@b.c'], // not in audit: found in dbo
+    ]);
   });
 
   it('uses explicit TypedValue inputs as given', async () => {
@@ -570,8 +590,8 @@ describe('MssqlConnector', () => {
 
     loaded();
     await Promise.all(refreshes);
-    // Two queries for the initial load, one statement, two queries for the single refresh
-    expect(FakePool.last.requests).toHaveLength(5);
+    // Three queries for the initial load, one statement, three queries for the single refresh
+    expect(FakePool.last.requests).toHaveLength(7);
 
     await mssql.executeQuery('SELECT @email', { email: 'a@b.c' }, ['users']);
     expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [200] }, 'a@b.c']]);

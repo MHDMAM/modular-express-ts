@@ -28,6 +28,11 @@ const DDL = [
    )`,
   `CREATE TABLE dbo.orders (id int PRIMARY KEY, total decimal(10, 2) NOT NULL, note varchar(10))`,
   `CREATE TABLE audit.orders (id bigint PRIMARY KEY, note nvarchar(50))`,
+  `CREATE TABLE audit.trail (id bigint PRIMARY KEY, entry nvarchar(50))`,
+  // A user whose names without schema resolve in audit first
+  `CREATE LOGIN auditor WITH PASSWORD = 'Aud1tor!Passw0rd'`,
+  `CREATE USER auditor FOR LOGIN auditor WITH DEFAULT_SCHEMA = audit`,
+  `GRANT SELECT, INSERT, EXECUTE TO auditor`,
   `CREATE VIEW dbo.order_totals AS SELECT id AS order_id, total AS order_total FROM dbo.orders`,
   `CREATE PROCEDURE dbo.usp_add_order
      @id int, @total decimal(10, 2), @note varchar(10) = NULL, @count int OUTPUT, @label nvarchar(30) OUTPUT
@@ -146,8 +151,41 @@ describe('schema', () => {
       precision: 10,
       scale: 2,
     });
-    await expect(declared('id', 1, ['orders'])).rejects.toThrow('several schemas (dbo.orders, audit.orders)');
     await expect(declared('id', 1, ['nope'])).rejects.toThrow('unknown table or view "nope"');
+  });
+
+  it('resolves a name without schema like the server: default schema, then dbo', async () => {
+    const insertTrail = 'INSERT INTO trail (id, entry) VALUES (@id, @entry)';
+    // dbo is the default schema here: dbo.orders, and audit.trail is not found by the server either
+    expect(await declared('id', 1, ['orders'])).toMatchObject({ type: 'int' });
+    await expect(mssql.executeQuery(insertTrail, { id: 1, entry: 'x' }, ['trail'])).rejects.toThrow(
+      'unknown table or view "trail"',
+    );
+    await expect(mssql.executeQuery(insertTrail, { id: 1, entry: 'x' })).rejects.toThrow(/Invalid object name 'trail'/);
+    await expect(mssql.executeSP('usp_log', { id: 1, note: 'x' }, { logged_at: undefined })).rejects.toThrow(
+      'output parameter "logged_at" has no known type',
+    );
+
+    const auditor = new MssqlConnector({ ...config, user: 'auditor', password: 'Aud1tor!Passw0rd' });
+    await auditor.init();
+    try {
+      const idType = async (table: string) => {
+        const { recordset } = await auditor.executeQuery<{ type: string }>(
+          `SELECT CAST(SQL_VARIANT_PROPERTY(@id, 'BaseType') AS varchar(30)) AS type`,
+          { id: 1 },
+          [table],
+        );
+        return recordset[0].type;
+      };
+      expect(await idType('orders')).toBe('bigint'); // audit.orders
+      expect(await idType('everything')).toBe('int'); // not in audit: dbo.everything
+      await auditor.executeQuery(insertTrail, { id: 1, entry: 'créé' }, ['trail']);
+      const logged = await auditor.executeSP('usp_log', { id: 50, note: 'x' }, { logged_at: undefined });
+      expect(logged.output).toEqual({ logged_at: new Date('2024-02-29T12:34:56.789Z') });
+      await mssql.executeQuery('DELETE FROM audit.orders WHERE id = 50');
+    } finally {
+      await auditor.close();
+    }
   });
 
   it('rejects a value longer than its column before sending it', async () => {

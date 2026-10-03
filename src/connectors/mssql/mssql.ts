@@ -62,17 +62,14 @@ interface Column {
   fixedBinary?: boolean;
 }
 
-/** Tables and views with their columns, or procedures with their parameters. */
-interface Catalog {
-  /** Columns by lowercase name, of each object by lowercase `schema.name`. */
-  objects: Map<string, Map<string, Column>>;
-  /** The `schema.name` keys sharing a lowercase bare name, to resolve objects given without their schema. */
-  qualified: Map<string, string[]>;
-}
+/** The columns by lowercase name of each table and view (or the parameters of each procedure) by lowercase `schema.name`. */
+type Catalog = Map<string, Map<string, Column>>;
 
 interface Schema {
   tables: Catalog;
   procedures: Catalog;
+  /** Where a name without schema is looked up, as the server does: the user's default schema, then `dbo`. */
+  defaultSchemas: string[];
 }
 
 type TypeFactory = (...args: number[]) => ISqlType;
@@ -105,6 +102,8 @@ const PARAMETERS_QUERY = `
   SELECT SCHEMA_NAME(obj.schema_id) AS SchemaName, obj.name AS ObjectName,
          STUFF(par.name, 1, 1, '') AS ColumnName,${typeColumns('par')}
   FROM sys.parameters par${typeJoins('par')} AND obj.type = 'P'`;
+
+const DEFAULT_SCHEMA_QUERY = 'SELECT SCHEMA_NAME() AS DefaultSchema';
 
 function isTypedValue(value: unknown): value is TypedValue {
   return typeof value === 'object' && value !== null && 'datatype' in value && 'value' in value;
@@ -194,8 +193,9 @@ export class MssqlConnector implements Connector {
 
   /**
    * Runs a parameterised query (`@name` placeholders). Inputs named after a column of one of `tables` (tables or
-   * views, `name` or `schema.name`) are sent with that column's declared type, and rejected when too long for it;
-   * `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
+   * views, `schema.name`, or `name` for those the server finds without a schema) are sent with that column's declared
+   * type, and rejected when too long for it; `TypedValue` inputs use their explicit type; anything else lets the
+   * driver infer the type.
    */
   async executeQuery<T = unknown>(
     query: string,
@@ -419,7 +419,7 @@ export class MssqlConnector implements Connector {
     if (!tables.length) return [];
     const schema = await this.loadedSchema();
     return tables.map((table) => {
-      const columns = this.find(schema.tables, 'table or view', table);
+      const columns = this.find(schema.tables, schema.defaultSchemas, table);
       if (!columns) throw new Error(`MSSQL: unknown table or view "${table}"`);
       return columns;
     });
@@ -432,18 +432,19 @@ export class MssqlConnector implements Connector {
   ): Promise<Map<string, Column>[]> {
     // The schema is only needed for parameters without an explicit type
     if (Object.values(values).every(isTypedValue)) return [];
-    const parameters = this.find((await this.loadedSchema()).procedures, 'procedure', procedure);
+    const schema = await this.loadedSchema();
+    const parameters = this.find(schema.procedures, schema.defaultSchemas, procedure);
     return parameters ? [parameters] : [];
   }
 
-  /** Looks an object up by `name` or `schema.name` (brackets allowed). */
-  private find(catalog: Catalog, kind: string, name: string): Map<string, Column> | undefined {
+  /**
+   * Looks an object up by `schema.name` or `name` (brackets allowed). A name without schema is resolved like the
+   * server resolves it in a statement: in the user's default schema, then in `dbo`.
+   */
+  private find(catalog: Catalog, defaultSchemas: string[], name: string): Map<string, Column> | undefined {
     const key = name.replace(/[[\]"]/g, '').toLowerCase();
-    const keys = key.includes('.') ? [key] : (catalog.qualified.get(key) ?? []);
-    if (keys.length > 1) {
-      throw new Error(`MSSQL: ${kind} "${name}" exists in several schemas (${keys.join(', ')}): add the schema`);
-    }
-    return catalog.objects.get(keys[0] ?? key);
+    const keys = key.includes('.') ? [key] : defaultSchemas.map((schema) => `${schema}.${key}`);
+    return keys.map((candidate) => catalog.get(candidate)).find((found) => found !== undefined);
   }
 
   /** The schema: loaded by init() in the background, or now when that load failed or has not finished. */
@@ -471,29 +472,32 @@ export class MssqlConnector implements Connector {
     const start = Date.now();
     const columns = await this.executeQuery<ColumnRow>(COLUMNS_QUERY);
     const parameters = await this.executeQuery<ColumnRow>(PARAMETERS_QUERY);
-    const schema = { tables: this.catalog(columns.recordset), procedures: this.catalog(parameters.recordset) };
+    const defaults = await this.executeQuery<{ DefaultSchema: string | null }>(DEFAULT_SCHEMA_QUERY);
+    const defaultSchema = defaults.recordset[0]?.DefaultSchema?.toLowerCase() ?? 'dbo';
+    const schema = {
+      tables: this.catalog(columns.recordset),
+      procedures: this.catalog(parameters.recordset),
+      defaultSchemas: [...new Set([defaultSchema, 'dbo'])],
+    };
     logger.info({
       info: 'MSSQL schema loaded',
-      tables: schema.tables.objects.size,
-      procedures: schema.procedures.objects.size,
+      tables: schema.tables.size,
+      procedures: schema.procedures.size,
+      defaultSchema,
       durationMs: Date.now() - start,
     });
     return schema;
   }
 
   private catalog(rows: ColumnRow[]): Catalog {
-    const catalog: Catalog = { objects: new Map(), qualified: new Map() };
+    const catalog: Catalog = new Map();
     for (const row of rows) {
       const column = this.column(row);
       // No type factory in the driver (e.g. timestamp): inputs for this column are left to the driver
       if (!column) continue;
-      const name = row.ObjectName.toLowerCase();
-      const key = `${row.SchemaName.toLowerCase()}.${name}`;
-      let columns = catalog.objects.get(key);
-      if (!columns) {
-        catalog.objects.set(key, (columns = new Map()));
-        catalog.qualified.set(name, [...(catalog.qualified.get(name) ?? []), key]);
-      }
+      const key = `${row.SchemaName}.${row.ObjectName}`.toLowerCase();
+      let columns = catalog.get(key);
+      if (!columns) catalog.set(key, (columns = new Map()));
       columns.set(row.ColumnName.toLowerCase(), column);
     }
     return catalog;
