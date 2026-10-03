@@ -36,6 +36,14 @@ const schemaRows = [
   column('audit.orders', 'id', 'bigint', 8, 19, 0),
 ];
 
+/** Parameters returned by the procedure parameters query. */
+const parameterRows = [
+  column('dbo.usp_create_user', 'email', 'varchar', 100),
+  column('dbo.usp_create_user', 'balance', 'decimal', 9, 18, 4),
+  column('dbo.usp_create_user', 'id', 'int', 4, 10, 0),
+  column('dbo.usp_create_user', 'code', 'nvarchar', 20),
+];
+
 class FakeRequest {
   inputs: unknown[][] = [];
   outputs: unknown[][] = [];
@@ -44,7 +52,9 @@ class FakeRequest {
   query = vi.fn(async (command: string) =>
     command.includes('sys.columns')
       ? { recordset: schemaRows, rowsAffected: [schemaRows.length] }
-      : { recordset: [{ id: 1 }], rowsAffected: [1] },
+      : command.includes('sys.parameters')
+        ? { recordset: parameterRows, rowsAffected: [parameterRows.length] }
+        : { recordset: [{ id: 1 }], rowsAffected: [1] },
   );
   execute = vi.fn(async (_procedure: string) => ({ recordset: [], rowsAffected: [0], output: {}, returnValue: 0 }));
 }
@@ -212,27 +222,50 @@ describe('MssqlConnector', () => {
     ]);
   });
 
-  it('executes stored procedures with inputs and typed outputs', async () => {
+  it('types stored procedure inputs and outputs from the procedure definition', async () => {
     const mssql = await connected();
 
-    await mssql.executeSP('usp_create_user', { email: 'a@b.c' }, { id: { datatype: 'Int', value: undefined } }, [
-      'users',
-    ]);
+    await mssql.executeSP(
+      '[dbo].[usp_create_user]',
+      { email: 'a@b.c', balance: 1.5, extra: 'x' },
+      { id: undefined, code: undefined },
+    );
 
     const request = lastRequest();
-    expect(request.execute).toHaveBeenCalledWith('usp_create_user');
+    expect(request.execute).toHaveBeenCalledWith('[dbo].[usp_create_user]');
     expect(request.query).not.toHaveBeenCalled();
-    expect(request.inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
-    expect(request.outputs).toEqual([['id', { type: 'Int', args: [] }, undefined]]);
+    expect(request.inputs).toEqual([
+      ['email', { type: 'VarChar', args: [100] }, 'a@b.c'],
+      ['balance', { type: 'Decimal', args: [18, 4] }, 1.5],
+      ['extra', 'x'], // not a parameter of the procedure: left to the driver (and to SQL Server to reject)
+    ]);
+    expect(request.outputs).toEqual([
+      ['id', { type: 'Int', args: [] }, undefined],
+      ['code', { type: 'NVarChar', args: [10] }, undefined],
+    ]);
+    await expect(mssql.executeSP('usp_create_user', { email: 'x'.repeat(101) })).rejects.toThrow(
+      'does not fit dbo.usp_create_user.email (100)',
+    );
   });
 
-  it('rejects unknown datatypes and untyped outputs', async () => {
+  it('runs procedures outside the schema with driver-typed inputs and explicit outputs', async () => {
+    const mssql = await connected();
+
+    await mssql.executeSP('other.dbo.usp_sync', { email: 'a@b.c' }, { total: { datatype: 'Int', value: undefined } });
+
+    expect(lastRequest().inputs).toEqual([['email', 'a@b.c']]);
+    expect(lastRequest().outputs).toEqual([['total', { type: 'Int', args: [] }, undefined]]);
+    await expect(mssql.executeSP('other.dbo.usp_sync', {}, { total: undefined })).rejects.toThrow(
+      'output parameter "total" has no known type',
+    );
+  });
+
+  it('rejects unknown datatypes', async () => {
     const mssql = await connected();
 
     await expect(mssql.executeQuery('SELECT 1', { x: { datatype: 'Nope', value: 1 } })).rejects.toThrow(
       'unknown datatype',
     );
-    await expect(mssql.executeSP('usp', {}, { id: 1 as any })).rejects.toThrow('needs a TypedValue');
   });
 
   it('rethrows failed statements and logs them without parameter values', async () => {
