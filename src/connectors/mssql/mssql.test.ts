@@ -45,6 +45,8 @@ const parameterRows = [
 ];
 
 class FakeRequest {
+  /** Set when created through the driver's `Request` constructor (statements with their own timeout). */
+  overrides?: unknown;
   inputs: unknown[][] = [];
   outputs: unknown[][] = [];
   input = vi.fn((...args: unknown[]) => (this.inputs.push(args), this));
@@ -57,6 +59,14 @@ class FakeRequest {
         : { recordset: [{ id: 1 }], rowsAffected: [1] },
   );
   execute = vi.fn(async (_procedure: string) => ({ recordset: [], rowsAffected: [0], output: {}, returnValue: 0 }));
+}
+
+class FakeTransaction {
+  constructor(private pool: FakePool) {}
+  begin = vi.fn(async (_isolationLevel?: number) => this);
+  commit = vi.fn(async () => {});
+  rollback = vi.fn(async () => {});
+  request = vi.fn(() => this.pool.request());
 }
 
 class FakePool extends EventEmitter {
@@ -78,6 +88,12 @@ class FakePool extends EventEmitter {
     return this;
   });
   close = vi.fn(async () => void (this.connected = false));
+  transactions: FakeTransaction[] = [];
+  transaction = vi.fn(() => {
+    const transaction = new FakeTransaction(this);
+    this.transactions.push(transaction);
+    return transaction;
+  });
   request = vi.fn(() => {
     const request = this.newRequest();
     this.requests.push(request);
@@ -92,6 +108,14 @@ vi.mock('mssql', () => {
   library.loaded = true;
   const sql = {
     ConnectionPool: FakePool,
+    Request: class extends FakeRequest {
+      constructor(parent: FakePool | FakeTransaction, overrides: unknown) {
+        super();
+        this.overrides = overrides;
+        (parent instanceof FakePool ? parent : FakePool.last).requests.push(this);
+      }
+    },
+    ISOLATION_LEVEL: { READ_COMMITTED: 2, SERIALIZABLE: 4 },
     TYPES: Object.fromEntries(typeNames.map((name) => [name, sqlType(name)])),
     MAX: 65535,
   };
@@ -101,9 +125,14 @@ vi.mock('mssql', () => {
 
 const baseConfig: MssqlConfig = { enabled: true, server: 'db', database: 'app', user: 'u', password: 'p' };
 
-async function connected() {
+/** A connected connector; by default its background schema load (two queries) has finished too. */
+async function connected({ schemaLoaded = true } = {}) {
   const mssql = new MssqlConnector(baseConfig);
   await mssql.init();
+  if (schemaLoaded) {
+    const loaded = () => expect(FakePool.last.requests.at(1)?.query.mock.results[0]?.type).toBe('return');
+    await vi.waitFor(loaded, { interval: 1 });
+  }
   return mssql;
 }
 
@@ -268,6 +297,63 @@ describe('MssqlConnector', () => {
     );
   });
 
+  it('overrides the request timeout for one statement', async () => {
+    const mssql = await connected();
+
+    await mssql.executeQuery('SELECT @n', { n: 1 }, [], { timeoutMs: 60_000 });
+    expect(lastRequest().overrides).toEqual({ requestTimeout: 60_000 });
+    expect(lastRequest().inputs).toEqual([['n', 1]]);
+
+    await mssql.executeSP('usp_create_user', { email: 'a@b.c' }, {}, { timeoutMs: 1_000 });
+    expect(lastRequest().overrides).toEqual({ requestTimeout: 1_000 });
+    expect(lastRequest().execute).toHaveBeenCalledWith('usp_create_user');
+  });
+
+  it('commits a transaction whose work resolves', async () => {
+    const mssql = await connected();
+
+    const result = await mssql.transaction(async (tx) => {
+      await tx.executeQuery('UPDATE users SET name = @name', { name: 'Ada' }, ['users']);
+      const { recordset } = await tx.executeQuery<{ id: number }>('SELECT id FROM users');
+      await tx.executeSP('usp_create_user', { email: 'a@b.c' });
+      return recordset[0].id;
+    }, 'SERIALIZABLE');
+
+    const transaction = FakePool.last.transactions[0];
+    expect(result).toBe(1);
+    expect(transaction.begin).toHaveBeenCalledWith(4);
+    expect(transaction.request).toHaveBeenCalledTimes(3);
+    expect(transaction.commit).toHaveBeenCalled();
+    expect(transaction.rollback).not.toHaveBeenCalled();
+  });
+
+  it('rolls a transaction back when its work throws', async () => {
+    const mssql = await connected();
+
+    await expect(
+      mssql.transaction(async (tx) => {
+        await tx.executeQuery('UPDATE users SET name = @name', { name: 'Ada' });
+        throw new Error('invalid order');
+      }),
+    ).rejects.toThrow('invalid order');
+
+    const transaction = FakePool.last.transactions[0];
+    expect(transaction.begin).toHaveBeenCalledWith(undefined);
+    expect(transaction.rollback).toHaveBeenCalled();
+    expect(transaction.commit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original error when the server already aborted the transaction', async () => {
+    const mssql = await connected();
+
+    await expect(
+      mssql.transaction(async () => {
+        FakePool.last.transactions[0].rollback.mockRejectedValueOnce(new Error('EABORT'));
+        throw new Error('deadlock victim');
+      }),
+    ).rejects.toThrow('deadlock victim');
+  });
+
   it('rethrows failed statements and logs them without parameter values', async () => {
     const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
     const mssql = await connected();
@@ -327,7 +413,7 @@ describe('MssqlConnector', () => {
       });
       return slow;
     });
-    const mssql = await connected();
+    const mssql = await connected({ schemaLoaded: false });
     expect(mssql.isReady()).toBe(true);
 
     // No tables: runs without the schema
@@ -351,7 +437,7 @@ describe('MssqlConnector', () => {
       failing.query.mockRejectedValueOnce(new Error('no permission'));
       return failing;
     });
-    const mssql = await connected();
+    const mssql = await connected({ schemaLoaded: false });
 
     await vi.waitFor(() =>
       expect(error).toHaveBeenCalledWith(expect.objectContaining({ info: 'MSSQL schema load failed' })),

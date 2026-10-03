@@ -1,4 +1,12 @@
-import type { ConnectionPool, IProcedureResult, IResult, ISqlType, config as PoolConfig, Request } from 'mssql';
+import type {
+  ConnectionPool,
+  IProcedureResult,
+  IResult,
+  ISqlType,
+  config as PoolConfig,
+  Request,
+  Transaction,
+} from 'mssql';
 import { z } from 'zod';
 
 import { envBoolean, envNumber, envOptional, envString, parseEnv } from '#config';
@@ -22,6 +30,16 @@ export interface TypedValue {
   scale?: number;
   value: unknown;
 }
+
+export interface StatementOptions {
+  /** Overrides `MSSQL_REQUEST_TIMEOUT_MS` for this statement. */
+  timeoutMs?: number;
+}
+
+export type IsolationLevel = 'READ_UNCOMMITTED' | 'READ_COMMITTED' | 'REPEATABLE_READ' | 'SERIALIZABLE' | 'SNAPSHOT';
+
+/** The statements available inside `transaction()`. */
+export type MssqlStatements = Pick<MssqlConnector, 'executeQuery' | 'executeSP'>;
 
 interface ColumnRow {
   SchemaName: string;
@@ -108,6 +126,7 @@ function isScalar(value: unknown): boolean {
  */
 export class MssqlConnector implements Connector {
   readonly name = 'mssql';
+  private driver?: typeof import('mssql');
   private pool?: ConnectionPool;
   /** Started by init() and awaited by the statements that need it; cleared when the load fails, so it is retried. */
   private schema?: Promise<Schema>;
@@ -138,6 +157,7 @@ export class MssqlConnector implements Connector {
       Object.entries(sql.TYPES as Record<string, TypeFactory>).map(([name, factory]) => [name.toLowerCase(), factory]),
     );
     this.max = sql.MAX;
+    this.driver = sql;
     // Assigned before connecting, so close() can stop a connection attempt
     this.pool = pool;
     try {
@@ -172,11 +192,13 @@ export class MssqlConnector implements Connector {
    * views, `name` or `schema.name`) are sent with that column's declared type, and rejected when too long for it;
    * `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
    */
-  async executeQuery<T = any>(query: string, inputs: Record<string, unknown> = {}, tables: string[] = []) {
-    const typedInputs = this.typed(inputs, await this.tableColumns(tables));
-    const request = this.request();
-    this.addParameters(request, 'input', typedInputs);
-    return this.run<IResult<T>>({ query }, () => request.query<T>(query));
+  async executeQuery<T = any>(
+    query: string,
+    inputs: Record<string, unknown> = {},
+    tables: string[] = [],
+    options: StatementOptions = {},
+  ) {
+    return this.query<T>(undefined, query, inputs, tables, options);
   }
 
   /**
@@ -189,20 +211,87 @@ export class MssqlConnector implements Connector {
     procedure: string,
     inputs: Record<string, unknown> = {},
     outputs: Record<string, unknown> = {},
+    options: StatementOptions = {},
+  ) {
+    return this.procedure<T>(undefined, procedure, inputs, outputs, options);
+  }
+
+  /**
+   * Runs `work` in a transaction: committed when it resolves, rolled back when it throws. Its statements share the
+   * transaction's single connection, so run them one after the other (no `Promise.all`).
+   *
+   * ```ts
+   * await mssql.transaction(async (tx) => {
+   *   await tx.executeQuery('UPDATE accounts SET balance = balance - @amount WHERE id = @from', { amount, from });
+   *   await tx.executeQuery('UPDATE accounts SET balance = balance + @amount WHERE id = @to', { amount, to });
+   * });
+   * ```
+   */
+  async transaction<R>(work: (tx: MssqlStatements) => Promise<R>, isolationLevel?: IsolationLevel): Promise<R> {
+    const transaction = this.connectedPool().transaction();
+    const start = Date.now();
+    await transaction.begin(isolationLevel && this.driver!.ISOLATION_LEVEL[isolationLevel]);
+    try {
+      const result = await work({
+        executeQuery: (query, inputs, tables, options) => this.query(transaction, query, inputs, tables, options),
+        executeSP: (procedure, inputs, outputs, options) =>
+          this.procedure(transaction, procedure, inputs, outputs, options),
+      });
+      await transaction.commit();
+      logger.debug({ info: 'MSSQL transaction committed', durationMs: Date.now() - start });
+      return result;
+    } catch (error) {
+      // Fails when the server already aborted the transaction (XACT_ABORT): nothing is left to roll back
+      await transaction.rollback().catch(() => undefined);
+      logger.debug({ info: 'MSSQL transaction rolled back', durationMs: Date.now() - start });
+      throw error;
+    }
+  }
+
+  private async query<T>(
+    transaction: Transaction | undefined,
+    query: string,
+    inputs: Record<string, unknown> = {},
+    tables: string[] = [],
+    options: StatementOptions = {},
+  ) {
+    const typedInputs = this.typed(inputs, await this.tableColumns(tables));
+    const request = this.request(transaction, options);
+    this.addParameters(request, 'input', typedInputs);
+    return this.run<IResult<T>>({ query }, () => request.query<T>(query));
+  }
+
+  private async procedure<T>(
+    transaction: Transaction | undefined,
+    procedure: string,
+    inputs: Record<string, unknown> = {},
+    outputs: Record<string, unknown> = {},
+    options: StatementOptions = {},
   ) {
     const parameters = await this.procedureParameters(procedure, { ...inputs, ...outputs });
     const typedInputs = this.typed(inputs, parameters);
     const typedOutputs = this.typed(outputs, parameters);
-    const request = this.request();
+    const request = this.request(transaction, options);
     this.addParameters(request, 'input', typedInputs);
     this.addParameters(request, 'output', typedOutputs);
     return this.run<IProcedureResult<T>>({ procedure }, () => request.execute<T>(procedure));
   }
 
-  private request(): Request {
+  private connectedPool(): ConnectionPool {
     if (!this.config.enabled) throw new Error('MSSQL connector is disabled (set MSSQL_ENABLED=true)');
     if (!this.pool?.connected) throw new Error('MSSQL connector is not ready');
-    return this.pool.request();
+    return this.pool;
+  }
+
+  private request(transaction: Transaction | undefined, { timeoutMs }: StatementOptions): Request {
+    const parent = transaction ?? this.connectedPool();
+    if (timeoutMs === undefined) return parent.request();
+    // The driver's typings lack the constructor's second argument
+    const RequestWithOverrides = this.driver!.Request as unknown as new (
+      parent: ConnectionPool | Transaction,
+      overrides: { requestTimeout: number },
+    ) => Request;
+    return new RequestWithOverrides(parent, { requestTimeout: timeoutMs });
   }
 
   /** Runs a statement, logging its duration and outcome; parameter values are not logged (personal data). */
