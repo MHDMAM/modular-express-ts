@@ -142,9 +142,14 @@ default.
 All are disabled by default.
 
 - **MSSQL** (`#connectors/mssql/mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`.
-  `executeQuery(query, inputs, tables)` runs parameterised queries (`@name`); inputs named after a column of `tables`
-  get that column's SQL type and length from the schema loaded on startup. `executeSP(procedure, inputs, outputs)` runs
-  stored procedures. Parameter values are never logged.
+  `executeQuery<Row>(query, inputs, tables)` runs parameterised queries (`@name`); inputs named after a column of
+  `tables` (tables or views, `name` or `schema.name`) are declared exactly like that column (length, precision, scale),
+  and a value too long for its column is rejected. `executeSP(procedure, inputs, outputs)` runs stored procedures,
+  typing the parameters from the procedure's definition. `{ datatype, typeLength, scale, value }` sets a type
+  explicitly; other inputs are typed by the driver. `transaction(async (tx) => { ... })` commits when the callback
+  resolves and rolls back when it throws. A last `{ timeoutMs }` argument overrides the request timeout for one
+  statement. The schema is loaded in the background once connected: statements that need it wait, the others do not.
+  Parameter values are never logged.
 - **Kafka** (`#connectors/kafka/kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`.
   Register topic handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if
   handlers exist) and publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to
