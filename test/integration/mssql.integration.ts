@@ -26,6 +26,14 @@ const DDL = [
      c_sysname sysname NULL, c_email dbo.email_address, c_rowversion rowversion,
      c_geography geography, c_hierarchyid hierarchyid, c_variant sql_variant
    )`,
+  // varchar columns in other code pages than the database's (1252)
+  `CREATE TABLE dbo.texts (
+     id int IDENTITY PRIMARY KEY,
+     c_utf8 varchar(10) COLLATE Latin1_General_100_CI_AS_SC_UTF8,
+     c_latin varchar(10),
+     c_jp varchar(10) COLLATE Japanese_CI_AS,
+     c_text_utf8 varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8
+   )`,
   `CREATE TABLE dbo.orders (id int PRIMARY KEY, total decimal(10, 2) NOT NULL, note varchar(10))`,
   `CREATE TABLE audit.orders (id bigint PRIMARY KEY, note nvarchar(50))`,
   `CREATE TABLE audit.trail (id bigint PRIMARY KEY, entry nvarchar(50))`,
@@ -530,6 +538,80 @@ describe('timeouts and streaming', () => {
     });
 
     expect(ids).toEqual([400, 401]);
+  });
+});
+
+describe('code pages', () => {
+  const roundTrip = async (connector: MssqlConnector, column: string, value: string) => {
+    const { recordset } = await connector.executeQuery<{ stored: string }>(
+      `INSERT INTO dbo.texts (${column}) OUTPUT inserted.${column} AS stored VALUES (@${column})`,
+      { [column]: value },
+      ['texts'],
+    );
+    return recordset[0].stored;
+  };
+
+  it.each([
+    ['c_utf8', 'ééééé'], // 10 bytes
+    ['c_utf8', '日本語'], // 9 bytes, not in the database's code page
+    ['c_utf8', 'abcdefghij'],
+    ['c_latin', 'é'.repeat(10)],
+    ['c_jp', '日本語日本'], // 10 bytes in code page 932
+    ['c_jp', 'ｱｲｳｴｵｶｷｸｹｺ'], // one byte each in code page 932
+    ['c_text_utf8', '日本語 · ' + 'é'.repeat(5000)],
+  ])('keeps %s = %s', async (column, value) => {
+    expect(await roundTrip(mssql, column, value)).toBe(value);
+  });
+
+  it('finds a row by non-ASCII text in a column of another code page', async () => {
+    await roundTrip(mssql, 'c_utf8', '東京');
+    const { recordset } = await mssql.executeQuery<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM dbo.texts WHERE c_utf8 = @c_utf8',
+      { c_utf8: '東京' },
+      ['texts'],
+    );
+    expect(recordset[0].n).toBe(1);
+  });
+
+  it('rejects text longer than a UTF-8 column in bytes', async () => {
+    await expect(roundTrip(mssql, 'c_utf8', 'éééééé')).rejects.toThrow(
+      '(length 12) does not fit dbo.texts.c_utf8 (10)',
+    );
+    await expect(roundTrip(mssql, 'c_utf8', '日本語日')).rejects.toThrow('(length 12) does not fit');
+  });
+
+  describe('in a UTF-8 database', () => {
+    let utf8: MssqlConnector;
+
+    beforeAll(async () => {
+      const { database: _database, enabled: _enabled, ...server } = config;
+      const admin = await new sql.ConnectionPool({ ...server, database: 'master' }).connect();
+      await admin.request().batch('CREATE DATABASE utf8 COLLATE Latin1_General_100_CI_AS_SC_UTF8');
+      await admin.close();
+      const setup = await new sql.ConnectionPool({ ...server, database: 'utf8' }).connect();
+      await setup.request().batch('CREATE TABLE dbo.texts (id int IDENTITY PRIMARY KEY, c_utf8 varchar(10))');
+      await setup.request().batch(`CREATE PROCEDURE dbo.usp_echo @text varchar(10), @echo varchar(10) OUTPUT AS
+                                     SET @echo = @text`);
+      await setup.close();
+      utf8 = new MssqlConnector({ ...config, database: 'utf8' });
+      await utf8.init();
+    });
+
+    afterAll(() => utf8?.close());
+
+    it('keeps non-ASCII text in varchar columns and procedure parameters', async () => {
+      expect(await roundTrip(utf8, 'c_utf8', '日本語')).toBe('日本語');
+      expect(await roundTrip(utf8, 'c_utf8', 'ééééé')).toBe('ééééé');
+      const { output } = await utf8.executeSP('usp_echo', { text: '日本語' }, { echo: undefined });
+      expect(output.echo).toBe('日本語');
+    });
+
+    it('rejects text longer than the column or the parameter in bytes', async () => {
+      await expect(roundTrip(utf8, 'c_utf8', '日本語日')).rejects.toThrow('(length 12) does not fit');
+      await expect(utf8.executeSP('usp_echo', { text: 'éééééé' }, { echo: undefined })).rejects.toThrow(
+        '(length 12) does not fit dbo.usp_echo.text (10)',
+      );
+    });
   });
 });
 

@@ -10,7 +10,15 @@ import { MssqlConfig, mssqlConfigFromEnv, MssqlConnector } from './mssql.js';
 const library = vi.hoisted(() => ({ loaded: false }));
 
 /** Columns returned by the schema query. */
-const column = (table: string, name: string, type: string, maxLength: number, precision = 0, scale = 0) => {
+const column = (
+  table: string,
+  name: string,
+  type: string,
+  maxLength: number,
+  precision = 0,
+  scale = 0,
+  codePage: number | null = null,
+) => {
   const [SchemaName, ObjectName] = table.split('.');
   return {
     SchemaName,
@@ -20,6 +28,7 @@ const column = (table: string, name: string, type: string, maxLength: number, pr
     MaxLength: maxLength,
     NumericPrecision: precision,
     NumericScale: scale,
+    CodePage: codePage ?? (type === 'varchar' && table.startsWith('dbo.') && !table.includes('usp_') ? 1252 : null),
   };
 };
 
@@ -37,6 +46,10 @@ const schemaRows = [
   column('dbo.orders', 'id', 'int', 4, 10, 0),
   column('audit.orders', 'id', 'bigint', 8, 19, 0),
   column('audit.trail', 'id', 'bigint', 8, 19, 0),
+  // varchar columns in other code pages than the database's (1252)
+  column('dbo.texts', 'utf8', 'varchar', 10, 0, 0, 65001),
+  column('dbo.texts', 'latin', 'varchar', 10, 0, 0, 1252),
+  column('dbo.texts', 'jp', 'varchar', 10, 0, 0, 932),
   // Names differing only by case, as a case-sensitive database allows
   column('dbo.Accounts', 'Name', 'varchar', 10),
   column('dbo.Accounts', 'name', 'varchar', 20),
@@ -85,7 +98,7 @@ class FakeRequest extends EventEmitter {
       : command.includes('sys.parameters')
         ? { recordset: parameterRows, rowsAffected: [parameterRows.length] }
         : command.includes('AS DefaultSchema')
-          ? { recordset: [{ DefaultSchema: FakeRequest.defaultSchema }], rowsAffected: [1] }
+          ? { recordset: [{ DefaultSchema: FakeRequest.defaultSchema, CodePage: 1252 }], rowsAffected: [1] }
           : { recordset: [{ id: 1 }], rowsAffected: [1] },
   );
   execute = vi.fn(async (_procedure: string) => ({ recordset: [], rowsAffected: [0], output: {}, returnValue: 0 }));
@@ -307,6 +320,28 @@ describe('MssqlConnector', () => {
     expect(lastRequest().inputs).toEqual([['ID', { type: 'Int', args: [] }, 1]]);
 
     await expect(mssql.executeQuery('SELECT 1', { id: 1 }, ['ACCOUNTS'])).rejects.toThrow('unknown table or view');
+  });
+
+  it('sends text the database code page cannot carry as Unicode, and counts bytes for UTF-8 columns', async () => {
+    const mssql = await connected();
+
+    await mssql.executeQuery('SELECT 1', { utf8: 'ééééé', latin: 'é'.repeat(10), jp: '日本語日本語' }, ['texts']);
+    expect(lastRequest().inputs).toEqual([
+      ['utf8', { type: 'NVarChar', args: [10] }, 'ééééé'], // 10 bytes in UTF-8
+      ['latin', { type: 'VarChar', args: [10] }, 'é'.repeat(10)], // the database's own code page
+      ['jp', { type: 'NVarChar', args: [10] }, '日本語日本語'], // double-byte code page: length left to the server
+    ]);
+
+    // ASCII is the same in every code page: declared like the column
+    await mssql.executeQuery('SELECT 1', { utf8: 'abcdefghij', jp: 'abc' }, ['texts']);
+    expect(lastRequest().inputs).toEqual([
+      ['utf8', { type: 'VarChar', args: [10] }, 'abcdefghij'],
+      ['jp', { type: 'VarChar', args: [10] }, 'abc'],
+    ]);
+
+    await expect(mssql.executeQuery('SELECT 1', { utf8: 'éééééé' }, ['texts'])).rejects.toThrow(
+      'the value of "utf8" (length 12) does not fit dbo.texts.utf8 (10)',
+    );
   });
 
   it('uses explicit TypedValue inputs as given', async () => {

@@ -49,6 +49,8 @@ interface ColumnRow {
   MaxLength: number;
   NumericPrecision: number;
   NumericScale: number;
+  /** Code page of the column's collation; null for other types and for procedure parameters. */
+  CodePage: number | null;
 }
 
 /** A column, or a procedure parameter, as declared in the database. */
@@ -60,6 +62,13 @@ interface Column {
   maxLength?: number;
   /** `binary(n)`: shorter values are zero-padded to `n`, as the server stores them. */
   fixedBinary?: boolean;
+  /** `char`, `varchar` and `text`: stored in a code page, so `maxLength` is in bytes of that code page. */
+  encoded?: {
+    /** The collation's code page; undefined for the database's own (procedure parameters). */
+    codePage?: number;
+    /** The same length as a Unicode type, for text the database's code page cannot carry. */
+    unicode: ISqlType;
+  };
 }
 
 /**
@@ -98,6 +107,8 @@ interface Schema {
   procedures: Catalog;
   /** Where a name without schema is looked up, as the server does: the user's default schema, then `dbo`. */
   defaultSchemas: string[];
+  /** Code page of the database's collation: the one the driver encodes `char` and `varchar` parameters in. */
+  codePage?: number;
 }
 
 type TypeFactory = (...args: number[]) => ISqlType;
@@ -122,16 +133,25 @@ const typeJoins = (source: string) => `
   WHERE obj.is_ms_shipped = 0 AND typ.is_assembly_type = 0 AND typ.is_table_type = 0`;
 
 const COLUMNS_QUERY = `
-  SELECT SCHEMA_NAME(obj.schema_id) AS SchemaName, obj.name AS ObjectName, col.name AS ColumnName,${typeColumns('col')}
+  SELECT SCHEMA_NAME(obj.schema_id) AS SchemaName, obj.name AS ObjectName, col.name AS ColumnName,
+         CAST(COLLATIONPROPERTY(col.collation_name, 'CodePage') AS int) AS CodePage,${typeColumns('col')}
   FROM sys.columns col${typeJoins('col')} AND obj.type IN ('U', 'V') AND obj.name <> 'sysdiagrams'`;
 
 // Parameter names are stored with their @
 const PARAMETERS_QUERY = `
   SELECT SCHEMA_NAME(obj.schema_id) AS SchemaName, obj.name AS ObjectName,
-         STUFF(par.name, 1, 1, '') AS ColumnName,${typeColumns('par')}
+         STUFF(par.name, 1, 1, '') AS ColumnName, CAST(NULL AS int) AS CodePage,${typeColumns('par')}
   FROM sys.parameters par${typeJoins('par')} AND obj.type = 'P'`;
 
-const DEFAULT_SCHEMA_QUERY = 'SELECT SCHEMA_NAME() AS DefaultSchema';
+const DATABASE_QUERY = `
+  SELECT SCHEMA_NAME() AS DefaultSchema,
+         CAST(COLLATIONPROPERTY(CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS nvarchar(128)), 'CodePage') AS int)
+           AS CodePage`;
+
+const UTF8 = 65001;
+/** Code pages with one or two bytes per character (Japanese, Chinese, Korean): byte lengths are not computed. */
+const DOUBLE_BYTE = [932, 936, 949, 950];
+const ASCII = /^[\x00-\x7f]*$/;
 
 function isTypedValue(value: unknown): value is TypedValue {
   return typeof value === 'object' && value !== null && 'datatype' in value && 'value' in value;
@@ -314,7 +334,7 @@ export class MssqlConnector implements Connector {
     tables: string[] = [],
     options: StatementOptions = {},
   ) {
-    const typedInputs = this.typed(inputs, await this.tableColumns(tables));
+    const typedInputs = await this.typedFromTables(inputs, tables);
     const request = this.request(transaction, options);
     this.addParameters(request, 'input', typedInputs);
     return this.run<IResult<T>>({ query }, () => request.query<T>(query));
@@ -327,9 +347,7 @@ export class MssqlConnector implements Connector {
     outputs: Record<string, unknown> = {},
     options: StatementOptions = {},
   ) {
-    const parameters = await this.procedureParameters(procedure, { ...inputs, ...outputs });
-    const typedInputs = this.typed(inputs, parameters);
-    const typedOutputs = this.typed(outputs, parameters);
+    const [typedInputs, typedOutputs] = await this.typedFromProcedure(procedure, inputs, outputs);
     const request = this.request(transaction, options);
     this.addParameters(request, 'input', typedInputs);
     this.addParameters(request, 'output', typedOutputs);
@@ -343,7 +361,7 @@ export class MssqlConnector implements Connector {
     tables: string[] = [],
     options: StatementOptions = {},
   ): AsyncGenerator<T, void, undefined> {
-    const typedInputs = this.typed(inputs, await this.tableColumns(tables));
+    const typedInputs = await this.typedFromTables(inputs, tables);
     const request = this.request(transaction, options);
     this.addParameters(request, 'input', typedInputs);
     const rows = request.toReadableStream();
@@ -422,15 +440,28 @@ export class MssqlConnector implements Connector {
    * Gives the parameters named after one of `columns` that column's declared type (the first table having the column
    * wins). Explicit `TypedValue`s and non-scalar values are left as they are.
    */
-  private typed(parameters: Record<string, unknown>, columns: Names<Column>[]): Record<string, unknown> {
+  private typed(
+    parameters: Record<string, unknown>,
+    columns: Names<Column>[],
+    databaseCodePage?: number,
+  ): Record<string, unknown> {
     if (!columns.length) return parameters;
     return Object.fromEntries(
       Object.entries(parameters).map(([name, value]) => {
         if (isTypedValue(value) || !isScalar(value)) return [name, value];
         const column = columns.map((table) => table.get(name)).find((found) => found !== undefined);
         if (!column) return [name, value];
+        let type = column.type;
+        let length = typeof value === 'string' || Buffer.isBuffer(value) ? value.length : 0;
+        if (typeof value === 'string' && column.encoded && !ASCII.test(value)) {
+          const codePage = column.encoded.codePage ?? databaseCodePage;
+          // The driver encodes char and varchar parameters in the database's code page: sent that way to a column of
+          // another code page, the characters the database's lacks arrive as "?"
+          if (codePage !== databaseCodePage) type = column.encoded.unicode;
+          if (codePage === UTF8) length = Buffer.byteLength(value);
+          else if (codePage !== undefined && DOUBLE_BYTE.includes(codePage)) length = 0;
+        }
         // A value that does not fit would be truncated silently by the declared length
-        const length = typeof value === 'string' || Buffer.isBuffer(value) ? value.length : 0;
         if (column.maxLength !== undefined && length > column.maxLength) {
           throw new Error(
             `MSSQL: the value of "${name}" (length ${length}) does not fit ${column.path} (${column.maxLength})`,
@@ -438,28 +469,34 @@ export class MssqlConnector implements Connector {
         }
         // The driver sends a binary(n) value shorter than n as a broken packet, which the server rejects
         const padded = column.fixedBinary && Buffer.isBuffer(value) ? Buffer.concat([value], column.maxLength) : value;
-        return [name, new TypedParameter(column.type, padded)];
+        return [name, new TypedParameter(type, padded)];
       }),
     );
   }
 
-  private async tableColumns(tables: string[]): Promise<Names<Column>[]> {
-    if (!tables.length) return [];
+  private async typedFromTables(inputs: Record<string, unknown>, tables: string[]): Promise<Record<string, unknown>> {
+    if (!tables.length) return inputs;
     const schema = await this.loadedSchema();
-    return tables.map((table) => {
-      const columns = this.find(schema.tables, schema.defaultSchemas, table);
-      if (!columns) throw new Error(`MSSQL: unknown table or view "${table}"`);
-      return columns;
+    const columns = tables.map((table) => {
+      const found = this.find(schema.tables, schema.defaultSchemas, table);
+      if (!found) throw new Error(`MSSQL: unknown table or view "${table}"`);
+      return found;
     });
+    return this.typed(inputs, columns, schema.codePage);
   }
 
-  /** The parameters of a procedure; none when it is not in the schema (another database, a system procedure). */
-  private async procedureParameters(procedure: string, values: Record<string, unknown>): Promise<Names<Column>[]> {
+  /** Inputs and outputs left as they are when the procedure is not in the schema (another database, a system one). */
+  private async typedFromProcedure(
+    procedure: string,
+    inputs: Record<string, unknown>,
+    outputs: Record<string, unknown>,
+  ): Promise<Record<string, unknown>[]> {
     // The schema is only needed for parameters without an explicit type
-    if (Object.values(values).every(isTypedValue)) return [];
+    if ([...Object.values(inputs), ...Object.values(outputs)].every(isTypedValue)) return [inputs, outputs];
     const schema = await this.loadedSchema();
     const parameters = this.find(schema.procedures, schema.defaultSchemas, procedure);
-    return parameters ? [parameters] : [];
+    const columns = parameters ? [parameters] : [];
+    return [this.typed(inputs, columns, schema.codePage), this.typed(outputs, columns, schema.codePage)];
   }
 
   /**
@@ -497,12 +534,13 @@ export class MssqlConnector implements Connector {
     const start = Date.now();
     const columns = await this.executeQuery<ColumnRow>(COLUMNS_QUERY);
     const parameters = await this.executeQuery<ColumnRow>(PARAMETERS_QUERY);
-    const defaults = await this.executeQuery<{ DefaultSchema: string | null }>(DEFAULT_SCHEMA_QUERY);
-    const defaultSchema = defaults.recordset[0]?.DefaultSchema ?? 'dbo';
+    const database = await this.executeQuery<{ DefaultSchema: string | null; CodePage: number | null }>(DATABASE_QUERY);
+    const defaultSchema = database.recordset[0]?.DefaultSchema ?? 'dbo';
     const schema = {
       tables: this.catalog(columns.recordset),
       procedures: this.catalog(parameters.recordset),
       defaultSchemas: [...new Set([defaultSchema, 'dbo'])],
+      codePage: database.recordset[0]?.CodePage ?? undefined,
     };
     logger.info({
       info: 'MSSQL schema loaded',
@@ -539,6 +577,10 @@ export class MssqlConnector implements Connector {
       const maxLength = row.MaxLength < 0 ? undefined : row.MaxLength / bytesPerUnit;
       return { path, type: factory(maxLength ?? this.max), maxLength };
     };
+    const encoded = (maxLength?: number): Column['encoded'] => ({
+      codePage: row.CodePage ?? undefined,
+      unicode: this.types.get('nvarchar')!(maxLength ?? this.max),
+    });
     switch (dataType) {
       case 'nchar':
       case 'nvarchar':
@@ -546,7 +588,12 @@ export class MssqlConnector implements Connector {
       case 'binary':
         return { ...sized(1), fixedBinary: true };
       case 'char':
-      case 'varchar':
+      case 'varchar': {
+        const column = sized(1);
+        return { ...column, encoded: encoded(column.maxLength) };
+      }
+      case 'text':
+        return { path, type: factory(), encoded: encoded() };
       case 'varbinary':
         return sized(1);
       case 'decimal':
