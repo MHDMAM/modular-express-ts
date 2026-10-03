@@ -160,7 +160,9 @@ All are disabled by default.
   Register topic handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if
   handlers exist) and publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to
   `<topic>.dlq` (`KAFKA_DEAD_LETTER_SUFFIX`, empty to retry instead). Set `KAFKA_SSL` and `KAFKA_SASL_MECHANISM`,
-  `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` for managed Kafka.
+  `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` for managed Kafka. A send fails after `KAFKA_SEND_TIMEOUT_MS` when the
+  brokers do not take the message, and the brokers are checked every `KAFKA_HEALTH_CHECK_INTERVAL_MS` for the readiness
+  check. Set `KAFKA_ADDRESS_FAMILY=v4` if the first connection to a `localhost` broker is slow (Docker on Windows).
 - **Hazelcast** (`#connectors/hazelcast/hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements
   `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME`, and `map(name)` returns any
   distributed map. Other client options can be added in `hazelcastConfigFromEnv`.

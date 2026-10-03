@@ -1,7 +1,7 @@
 import type { KafkaJS } from '@confluentinc/kafka-javascript';
 import { z } from 'zod';
 
-import config, { envBoolean, envList, envOptional, envString, parseEnv } from '#config';
+import config, { envBoolean, envList, envNumber, envOptional, envString, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 import { contextFromHeaders, contextHeaders, runWithContext } from '#core/request-context';
@@ -22,6 +22,15 @@ export interface KafkaConfig {
    * Empty string disables it: the error is rethrown and the consumer retries the message.
    */
   deadLetterSuffix: string;
+  /** How long `send()` waits for the broker to take a message before failing (the client's default is 5 minutes). */
+  sendTimeoutMs: number;
+  /** How often the brokers are asked for metadata for `isReady()`; 0 disables it. */
+  healthCheckIntervalMs: number;
+  /**
+   * IP version used to reach the brokers. `v4` avoids a slow first connection where a name such as `localhost`
+   * resolves to IPv6 first but the broker only listens on IPv4 (Docker on Windows).
+   */
+  addressFamily: 'any' | 'v4' | 'v6';
 }
 
 export interface IncomingMessage {
@@ -78,8 +87,15 @@ export class KafkaConnector implements Connector {
   private kafka?: KafkaJS.Kafka;
   private producer?: KafkaJS.Producer;
   private consumer?: KafkaJS.Consumer;
+  /** Only used by the health check. */
+  private admin?: KafkaJS.Admin;
   private readonly handlers = new Map<string, MessageHandler>();
   private ready = false;
+  /** False once a health check failed, until one succeeds again. */
+  private healthy = true;
+  private healthTimer?: NodeJS.Timeout;
+  /** Incremented by init() and close(), so an init() still connecting knows it was closed meanwhile. */
+  private generation = 0;
 
   constructor(private readonly config: KafkaConfig) {}
 
@@ -95,27 +111,46 @@ export class KafkaConnector implements Connector {
   }
 
   async init(): Promise<void> {
-    const { clientId, brokers, ssl, sasl, groupId, fromBeginning } = this.config;
+    const generation = ++this.generation;
+    const closed = () => {
+      if (generation !== this.generation) throw new Error('Kafka connector was closed during init');
+    };
+    const { clientId, brokers, ssl, sasl, groupId, fromBeginning, sendTimeoutMs, addressFamily } = this.config;
     // Loaded here, not at import time: a disabled connector never loads the client (and its native library)
     const { KafkaJS: client } = await import('@confluentinc/kafka-javascript');
+    closed();
     this.kafka = new client.Kafka({
       kafkaJS: { clientId, brokers, ssl, ...(sasl && { sasl }), logger: clientLogger() },
+      ...(addressFamily !== 'any' && { 'broker.address.family': addressFamily }),
     });
 
-    this.producer = this.kafka.producer();
+    // Assigned before connecting, so close() can disconnect a client that is still trying
+    this.producer = this.kafka.producer({ 'message.timeout.ms': sendTimeoutMs });
     await this.producer.connect();
+    closed();
 
     if (this.handlers.size > 0) {
       this.consumer = this.kafka.consumer({ kafkaJS: { groupId, fromBeginning } });
       await this.consumer.connect();
+      closed();
       await this.consumer.subscribe({ topics: [...this.handlers.keys()] });
       await this.consumer.run({ eachMessage: (payload) => this.dispatch(payload) });
+      closed();
     }
+
+    if (this.config.healthCheckIntervalMs > 0) {
+      this.admin = this.kafka.admin();
+      await this.admin.connect();
+      closed();
+      this.startHealthChecks(this.admin, this.config.healthCheckIntervalMs);
+    }
+    this.healthy = true;
     this.ready = true;
   }
 
   /** Publishes one or more messages; throws if the connector is not ready or the broker rejects them. */
   async send(topic: string, messages: OutgoingMessage | OutgoingMessage[]): Promise<void> {
+    if (!this.config.enabled) throw new Error('Kafka connector is disabled (set KAFKA_ENABLED=true)');
     if (!this.ready || !this.producer) throw new Error('Kafka connector is not ready');
     // Propagates the current request context (x-request-id, traceparent) unless the message sets its own
     const batch = (Array.isArray(messages) ? messages : [messages]).map((message) => ({
@@ -127,16 +162,44 @@ export class KafkaConnector implements Connector {
   }
 
   async close(): Promise<void> {
+    this.generation++;
     this.ready = false;
-    await this.consumer?.disconnect();
-    await this.producer?.disconnect();
-    this.consumer = undefined;
-    this.producer = undefined;
-    this.kafka = undefined;
+    clearInterval(this.healthTimer);
+    // The consumer first, so no handler is left running without a producer for its dead letters
+    const clients = { consumer: this.consumer, admin: this.admin, producer: this.producer };
+    this.consumer = this.admin = this.producer = this.kafka = undefined;
+    for (const [name, client] of Object.entries(clients)) {
+      // One client failing to disconnect must not leave the others connected
+      await client?.disconnect().catch((error) => logger.error({ info: `Kafka ${name} failed to disconnect`, error }));
+    }
   }
 
   isReady(): boolean {
-    return this.ready;
+    return this.ready && this.healthy;
+  }
+
+  /**
+   * Asks the brokers for metadata regularly: the client reconnects on its own and reports nothing when its brokers go
+   * away, so without this the connector would look ready forever.
+   */
+  private startHealthChecks(admin: KafkaJS.Admin, intervalMs: number): void {
+    clearInterval(this.healthTimer);
+    let checking = false;
+    const check = async () => {
+      if (checking || this.admin !== admin) return;
+      checking = true;
+      try {
+        await admin.listTopics({ timeout: Math.min(intervalMs, 5_000) });
+        this.healthy = true;
+      } catch {
+        // Not logged here: the connector monitor reports the change of status
+        this.healthy = false;
+      } finally {
+        checking = false;
+      }
+    };
+    // Does not keep the process alive
+    this.healthTimer = setInterval(check, intervalMs).unref();
   }
 
   private async dispatch({ topic, partition, message }: KafkaJS.EachMessagePayload): Promise<void> {
@@ -195,6 +258,12 @@ const kafkaEnv = z
     KAFKA_SASL_PASSWORD: envOptional(),
     /** Unset: `.dlq`; empty: no dead-letter topic. */
     KAFKA_DEAD_LETTER_SUFFIX: z.string().default('.dlq'),
+    KAFKA_SEND_TIMEOUT_MS: envNumber(30_000, { min: 1 }),
+    KAFKA_HEALTH_CHECK_INTERVAL_MS: envNumber(10_000),
+    KAFKA_ADDRESS_FAMILY: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.enum(['any', 'v4', 'v6']).default('any'),
+    ),
   })
   .superRefine((env, ctx) => {
     if (env.KAFKA_SASL_MECHANISM && (!env.KAFKA_SASL_USERNAME || !env.KAFKA_SASL_PASSWORD)) {
@@ -216,6 +285,9 @@ const kafkaEnv = z
       ? { mechanism: env.KAFKA_SASL_MECHANISM, username: env.KAFKA_SASL_USERNAME!, password: env.KAFKA_SASL_PASSWORD! }
       : null,
     deadLetterSuffix: env.KAFKA_DEAD_LETTER_SUFFIX,
+    sendTimeoutMs: env.KAFKA_SEND_TIMEOUT_MS,
+    healthCheckIntervalMs: env.KAFKA_HEALTH_CHECK_INTERVAL_MS,
+    addressFamily: env.KAFKA_ADDRESS_FAMILY,
   }));
 
 /** Reads the `KAFKA_*` environment variables. */

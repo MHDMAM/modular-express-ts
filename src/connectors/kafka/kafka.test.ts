@@ -8,13 +8,24 @@ import { KafkaConfig, kafkaConfigFromEnv, KafkaConnector } from './kafka.js';
 // Fake of the Confluent client's KafkaJS-compatible API: records calls and captures the eachMessage callback
 const fake = {
   kafkaConfig: undefined as any,
+  producerConfig: undefined as any,
   consumerConfig: undefined as any,
+  /** Set to make the health check's metadata request fail, like brokers that went away. */
+  down: false,
   eachMessage: undefined as undefined | ((payload: any) => Promise<void>),
   calls: [] as string[],
   producer: {
     connect: vi.fn(async () => void fake.calls.push('producer.connect')),
     send: vi.fn(async (_record: any) => []),
     disconnect: vi.fn(async () => void fake.calls.push('producer.disconnect')),
+  },
+  admin: {
+    connect: vi.fn(async () => void fake.calls.push('admin.connect')),
+    listTopics: vi.fn(async (_options: any) => {
+      if (fake.down) throw new Error('Local: Broker transport failure');
+      return [];
+    }),
+    disconnect: vi.fn(async () => void fake.calls.push('admin.disconnect')),
   },
   consumer: {
     connect: vi.fn(async () => void fake.calls.push('consumer.connect')),
@@ -35,7 +46,8 @@ vi.mock(
         Kafka: vi.fn(function (kafkaConfig: any) {
           fake.kafkaConfig = kafkaConfig;
           return {
-            producer: () => fake.producer,
+            producer: (producerConfig: any) => ((fake.producerConfig = producerConfig), fake.producer),
+            admin: () => fake.admin,
             consumer: (consumerConfig: any) => ((fake.consumerConfig = consumerConfig), fake.consumer),
           };
         }),
@@ -52,6 +64,9 @@ const baseConfig: KafkaConfig = {
   ssl: false,
   sasl: null,
   deadLetterSuffix: '.dlq',
+  sendTimeoutMs: 30_000,
+  healthCheckIntervalMs: 0,
+  addressFamily: 'any',
 };
 
 /** Delivers a message the way the client's eachMessage callback would. */
@@ -70,7 +85,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   fake.calls = [];
   fake.eachMessage = undefined;
-  fake.kafkaConfig = fake.consumerConfig = undefined;
+  fake.kafkaConfig = fake.producerConfig = fake.consumerConfig = undefined;
+  fake.down = false;
 });
 
 describe('KafkaConnector', () => {
@@ -100,7 +116,72 @@ describe('KafkaConnector', () => {
     expect(kafka.isReady()).toBe(true);
     expect(fake.kafkaConfig.kafkaJS).toMatchObject({ clientId: 'test-app', brokers: ['broker:9092'], ssl: false });
     expect(fake.kafkaConfig.kafkaJS).not.toHaveProperty('sasl');
+    expect(fake.kafkaConfig).not.toHaveProperty('broker.address.family');
+    expect(fake.producerConfig).toEqual({ 'message.timeout.ms': 30_000 });
     expect(fake.calls).toEqual(['producer.connect']);
+  });
+
+  it('passes the address family to the client when one is set', async () => {
+    await new KafkaConnector({ ...baseConfig, addressFamily: 'v4' }).init();
+
+    expect(fake.kafkaConfig['broker.address.family']).toBe('v4');
+  });
+
+  it('is not ready while its health check fails, and ready again when it passes', async () => {
+    const kafka = new KafkaConnector({ ...baseConfig, healthCheckIntervalMs: 5 });
+    await kafka.init();
+    expect(fake.calls).toEqual(['producer.connect', 'admin.connect']);
+    expect(kafka.isReady()).toBe(true);
+
+    fake.down = true;
+    await vi.waitFor(() => expect(kafka.isReady()).toBe(false), { interval: 1 });
+    expect(fake.admin.listTopics).toHaveBeenCalledWith({ timeout: 5 });
+
+    fake.down = false;
+    await vi.waitFor(() => expect(kafka.isReady()).toBe(true), { interval: 1 });
+
+    await kafka.close();
+    const checks = fake.admin.listTopics.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.admin.listTopics).toHaveBeenCalledTimes(checks);
+    expect(fake.calls.slice(-2)).toEqual(['admin.disconnect', 'producer.disconnect']);
+  });
+
+  it('fails an init that was closed while connecting', async () => {
+    const kafka = new KafkaConnector(baseConfig);
+    let connected!: () => void;
+    fake.producer.connect.mockImplementationOnce(
+      () => new Promise<undefined>((resolve) => (connected = () => resolve(undefined))),
+    );
+
+    const initializing = kafka.init();
+    await vi.waitFor(() => expect(fake.producer.connect).toHaveBeenCalled());
+    await kafka.close();
+    connected();
+
+    await expect(initializing).rejects.toThrow('closed during init');
+    expect(fake.producer.disconnect).toHaveBeenCalled();
+    expect(kafka.isReady()).toBe(false);
+  });
+
+  it('disconnects the other clients when one fails to disconnect', async () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const kafka = new KafkaConnector(baseConfig);
+    kafka.subscribe('orders', vi.fn());
+    await kafka.init();
+    fake.consumer.disconnect.mockRejectedValueOnce(new Error('rebalance in progress'));
+
+    await kafka.close();
+
+    expect(fake.producer.disconnect).toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ info: 'Kafka consumer failed to disconnect' }));
+    error.mockRestore();
+  });
+
+  it('says so when it is disabled', async () => {
+    const kafka = new KafkaConnector({ ...baseConfig, enabled: false });
+
+    await expect(kafka.send('orders', { value: 'x' })).rejects.toThrow('disabled');
   });
 
   it("routes the client's own logs through the application logger", async () => {
@@ -318,6 +399,9 @@ describe('kafkaConfigFromEnv', () => {
       ssl: false,
       sasl: null,
       deadLetterSuffix: '.dlq',
+      sendTimeoutMs: 30_000,
+      healthCheckIntervalMs: 10_000,
+      addressFamily: 'any',
     });
   });
 
