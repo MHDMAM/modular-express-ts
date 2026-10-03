@@ -533,6 +533,40 @@ describe('timeouts and streaming', () => {
   });
 });
 
+describe('case-sensitive database', () => {
+  let strict: MssqlConnector;
+
+  beforeAll(async () => {
+    const { database: _database, enabled: _enabled, ...server } = config;
+    const admin = await new sql.ConnectionPool({ ...server, database: 'master' }).connect();
+    await admin.request().batch('CREATE DATABASE strict COLLATE Latin1_General_100_CS_AS');
+    await admin.close();
+    const setup = await new sql.ConnectionPool({ ...server, database: 'strict' }).connect();
+    await setup.request().batch('CREATE TABLE dbo.Accounts (Name varchar(10), name nvarchar(20))');
+    await setup.request().batch('CREATE TABLE dbo.accounts (id bigint)');
+    await setup.close();
+    strict = new MssqlConnector({ ...config, database: 'strict' });
+    await strict.init();
+  });
+
+  afterAll(() => strict?.close());
+
+  it('keeps tables and columns that differ only by case apart', async () => {
+    const types = async (inputs: Record<string, unknown>, table: string) => {
+      const select = Object.keys(inputs).map((name, index) => {
+        return `CAST(SQL_VARIANT_PROPERTY(@${name}, 'BaseType') AS varchar(30)) AS t${index}`;
+      });
+      const { recordset } = await strict.executeQuery<Record<string, string>>(`SELECT ${select}`, inputs, [table]);
+      return Object.values(recordset[0]);
+    };
+
+    expect(await types({ Name: 'x' }, 'Accounts')).toEqual(['varchar']);
+    expect(await types({ name: 'x' }, 'Accounts')).toEqual(['nvarchar']);
+    expect(await types({ id: 1 }, 'accounts')).toEqual(['bigint']);
+    await expect(strict.executeQuery('SELECT 1', { id: 1 }, ['ACCOUNTS'])).rejects.toThrow('unknown table or view');
+  });
+});
+
 describe('lifecycle', () => {
   it('fails init against a server that is not there, and stays unusable', async () => {
     const unreachable = new MssqlConnector({ ...config, port: 1, connectionTimeout: 2_000 });

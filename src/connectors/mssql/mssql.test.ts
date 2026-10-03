@@ -37,6 +37,10 @@ const schemaRows = [
   column('dbo.orders', 'id', 'int', 4, 10, 0),
   column('audit.orders', 'id', 'bigint', 8, 19, 0),
   column('audit.trail', 'id', 'bigint', 8, 19, 0),
+  // Names differing only by case, as a case-sensitive database allows
+  column('dbo.Accounts', 'Name', 'varchar', 10),
+  column('dbo.Accounts', 'name', 'varchar', 20),
+  column('dbo.accounts', 'id', 'int', 4, 10, 0),
 ];
 
 /** Parameters returned by the procedure parameters query. */
@@ -287,6 +291,22 @@ describe('MssqlConnector', () => {
       ['id', { type: 'BigInt', args: [] }, 1],
       ['email', { type: 'VarChar', args: [100] }, 'a@b.c'], // not in audit: found in dbo
     ]);
+  });
+
+  it('matches names as written first, and ignores case only when that is unambiguous', async () => {
+    const mssql = await connected();
+
+    await mssql.executeQuery('SELECT 1', { Name: 'x', name: 'y', NAME: 'z' }, ['Accounts']);
+    expect(lastRequest().inputs).toEqual([
+      ['Name', { type: 'VarChar', args: [10] }, 'x'],
+      ['name', { type: 'VarChar', args: [20] }, 'y'],
+      ['NAME', 'z'], // two columns differ only by case: left to the driver
+    ]);
+
+    await mssql.executeQuery('SELECT 1', { ID: 1 }, ['dbo.accounts']);
+    expect(lastRequest().inputs).toEqual([['ID', { type: 'Int', args: [] }, 1]]);
+
+    await expect(mssql.executeQuery('SELECT 1', { id: 1 }, ['ACCOUNTS'])).rejects.toThrow('unknown table or view');
   });
 
   it('uses explicit TypedValue inputs as given', async () => {
