@@ -9,10 +9,31 @@ import { MssqlConfig, mssqlConfigFromEnv, MssqlConnector } from './mssql.js';
 const library = vi.hoisted(() => ({ loaded: false }));
 
 /** Columns returned by the schema query. */
+const column = (table: string, name: string, type: string, maxLength: number, precision = 0, scale = 0) => {
+  const [SchemaName, ObjectName] = table.split('.');
+  return {
+    SchemaName,
+    ObjectName,
+    ColumnName: name,
+    DataType: type,
+    MaxLength: maxLength,
+    NumericPrecision: precision,
+    NumericScale: scale,
+  };
+};
+
+/** Columns returned by the schema query, as `sys.columns` reports them (`max_length` in bytes). */
 const schemaRows = [
-  { ColumnName: 'email', DataType: 'varchar', MaxLength: 100, TableName: 'users' },
-  { ColumnName: 'bio', DataType: 'nvarchar', MaxLength: -1, TableName: 'users' },
-  { ColumnName: 'age', DataType: 'int', MaxLength: 4, TableName: 'users' },
+  column('dbo.users', 'email', 'varchar', 100),
+  column('dbo.users', 'name', 'nvarchar', 100), // nvarchar(50)
+  column('dbo.users', 'bio', 'nvarchar', -1), // nvarchar(MAX)
+  column('dbo.users', 'age', 'int', 4, 10, 0),
+  column('dbo.users', 'balance', 'decimal', 9, 18, 4),
+  column('dbo.users', 'created_at', 'datetime2', 8, 27, 7),
+  column('dbo.users', 'avatar', 'varbinary', 4),
+  column('dbo.users', 'version', 'timestamp', 8), // no type factory in the driver
+  column('dbo.orders', 'id', 'int', 4, 10, 0),
+  column('audit.orders', 'id', 'bigint', 8, 19, 0),
 ];
 
 class FakeRequest {
@@ -54,13 +75,15 @@ class FakePool extends EventEmitter {
   });
 }
 
-const sqlType = (type: string) => vi.fn((length?: number) => ({ type, length }));
+const sqlType = (type: string) => vi.fn((...args: number[]) => ({ type, args }));
+const typeNames = ['VarChar', 'NVarChar', 'Int', 'BigInt', 'Decimal', 'DateTime2', 'VarBinary'];
 
 vi.mock('mssql', () => {
   library.loaded = true;
   const sql = {
     ConnectionPool: FakePool,
-    TYPES: { VarChar: sqlType('VarChar'), NVarChar: sqlType('NVarChar'), Int: sqlType('Int') },
+    TYPES: Object.fromEntries(typeNames.map((name) => [name, sqlType(name)])),
+    MAX: 65535,
   };
   // Like the real package under ES modules: everything is on the default export
   return { default: sql };
@@ -108,30 +131,85 @@ describe('MssqlConnector', () => {
     error.mockRestore();
   });
 
-  it('types query inputs from the column schema of the given tables', async () => {
+  it('types query inputs exactly like the columns of the given tables', async () => {
     const mssql = await connected();
+    const createdAt = new Date();
 
     const result = await mssql.executeQuery(
-      'SELECT * FROM users WHERE email = @email AND bio = @bio AND age = @age AND other = @other',
-      { email: 'ada@example.com', bio: 'long text', age: 36, other: 'x' },
+      'UPDATE users SET name = @name, bio = @bio, balance = @balance, created_at = @created_at WHERE email = @Email',
+      { Email: 'ada@example.com', name: 'Ada', bio: 'long text', balance: 12.5, created_at: createdAt, age: null },
       ['users'],
     );
 
     expect(result.recordset).toEqual([{ id: 1 }]);
     expect(lastRequest().inputs).toEqual([
-      ['email', { type: 'VarChar', length: 15 }, 'ada@example.com'],
-      ['bio', { type: 'NVarChar', length: 9 }, 'long text'], // MAX column: the value's length
-      ['age', { type: 'Int', length: 4 }, 36],
-      ['other', 'x'], // not a known column: type inferred by the driver
+      ['Email', { type: 'VarChar', args: [100] }, 'ada@example.com'], // the declared length, not the value's
+      ['name', { type: 'NVarChar', args: [50] }, 'Ada'], // characters, not bytes
+      ['bio', { type: 'NVarChar', args: [65535] }, 'long text'], // MAX
+      ['balance', { type: 'Decimal', args: [18, 4] }, 12.5],
+      ['created_at', { type: 'DateTime2', args: [7] }, createdAt],
+      ['age', { type: 'Int', args: [] }, null],
     ]);
+  });
+
+  it('leaves the type to the driver for unknown columns, unsupported types and non-scalar values', async () => {
+    const mssql = await connected();
+    const list = [1, 2];
+
+    await mssql.executeQuery('SELECT 1', { other: 'x', version: 'abc', age: list }, ['dbo.users']);
+
+    expect(lastRequest().inputs).toEqual([
+      ['other', 'x'],
+      ['version', 'abc'],
+      ['age', list],
+    ]);
+  });
+
+  it('rejects values longer than their column', async () => {
+    const mssql = await connected();
+
+    await expect(mssql.executeQuery('SELECT 1', { name: 'x'.repeat(51) }, ['users'])).rejects.toThrow(
+      'the value of "name" (length 51) does not fit dbo.users.name (50)',
+    );
+    await expect(mssql.executeQuery('SELECT 1', { avatar: Buffer.alloc(5) }, ['users'])).rejects.toThrow(
+      'does not fit dbo.users.avatar (4)',
+    );
+    await expect(
+      mssql.executeQuery('SELECT 1', { name: 'x'.repeat(50), bio: 'x'.repeat(9000) }, ['users']),
+    ).resolves.toBeDefined();
+  });
+
+  it('resolves tables by schema, and rejects unknown and ambiguous ones', async () => {
+    const mssql = await connected();
+
+    await mssql.executeQuery('SELECT 1', { id: 1 }, ['[audit].[orders]']);
+    expect(lastRequest().inputs).toEqual([['id', { type: 'BigInt', args: [] }, 1]]);
+
+    await mssql.executeQuery('SELECT 1', { id: 1 }, ['DBO.Orders']);
+    expect(lastRequest().inputs).toEqual([['id', { type: 'Int', args: [] }, 1]]);
+
+    await expect(mssql.executeQuery('SELECT 1', { id: 1 }, ['orders'])).rejects.toThrow('several schemas');
+    await expect(mssql.executeQuery('SELECT 1', { id: 1 }, ['nope'])).rejects.toThrow('unknown table or view "nope"');
   });
 
   it('uses explicit TypedValue inputs as given', async () => {
     const mssql = await connected();
 
-    await mssql.executeQuery('SELECT @code', { code: { datatype: 'VarChar', typeLength: 3, value: 'abc' } });
+    await mssql.executeQuery(
+      'SELECT @code, @amount, @n',
+      {
+        code: { datatype: 'varchar', typeLength: 3, value: 'abc' },
+        amount: { datatype: 'Decimal', typeLength: 10, scale: 2, value: 1.25 },
+        n: { datatype: 'Int', value: 1 },
+      },
+      ['users'],
+    );
 
-    expect(lastRequest().inputs).toEqual([['code', { type: 'VarChar', length: 3 }, 'abc']]);
+    expect(lastRequest().inputs).toEqual([
+      ['code', { type: 'VarChar', args: [3] }, 'abc'],
+      ['amount', { type: 'Decimal', args: [10, 2] }, 1.25],
+      ['n', { type: 'Int', args: [] }, 1],
+    ]);
   });
 
   it('executes stored procedures with inputs and typed outputs', async () => {
@@ -144,8 +222,8 @@ describe('MssqlConnector', () => {
     const request = lastRequest();
     expect(request.execute).toHaveBeenCalledWith('usp_create_user');
     expect(request.query).not.toHaveBeenCalled();
-    expect(request.inputs).toEqual([['email', { type: 'VarChar', length: 5 }, 'a@b.c']]);
-    expect(request.outputs).toEqual([['id', { type: 'Int', length: undefined }, undefined]]);
+    expect(request.inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
+    expect(request.outputs).toEqual([['id', { type: 'Int', args: [] }, undefined]]);
   });
 
   it('rejects unknown datatypes and untyped outputs', async () => {

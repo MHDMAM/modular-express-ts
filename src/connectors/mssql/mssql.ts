@@ -13,34 +13,78 @@ export interface MssqlConfig extends PoolConfig {
 export interface TypedValue {
   /** Name of one of the driver's type factories (`sql.TYPES`, any case): `VarChar`, `NVarChar`, `Int`, ... */
   datatype: string;
+  /**
+   * First argument of the type: the length (strings, binary), the precision (`Decimal`, `Numeric`) or the scale
+   * (`Time`, `DateTime2`, `DateTimeOffset`).
+   */
   typeLength?: number;
+  /** Scale of a `Decimal` or `Numeric`. */
+  scale?: number;
   value: unknown;
 }
 
-interface ColumnDetails {
+interface ColumnRow {
+  SchemaName: string;
+  ObjectName: string;
   ColumnName: string;
   DataType: string;
   MaxLength: number;
-  TableName: string;
+  NumericPrecision: number;
+  NumericScale: number;
+}
+
+/** A column as declared in the database. */
+interface Column {
+  /** `schema.table.column`, for error messages. */
+  path: string;
+  type: ISqlType;
+  /** Characters (strings) or bytes (binary) the column holds; undefined when unlimited or not applicable. */
+  maxLength?: number;
+}
+
+interface Schema {
+  /** Columns by lowercase name, of each table and view by lowercase `schema.name`. */
+  tables: Map<string, Map<string, Column>>;
+  /** The `schema.name` keys sharing a lowercase bare name, to resolve tables given without their schema. */
+  qualified: Map<string, string[]>;
 }
 
 type TypeFactory = (...args: number[]) => ISqlType;
 
+/** A parameter whose SQL type is resolved. */
+class TypedParameter {
+  constructor(
+    readonly type: ISqlType,
+    readonly value: unknown,
+  ) {}
+}
+
+// Alias types (and `sysname`) are reported as their base type. CLR types (geography, hierarchyid, ...) are left out:
+// their parameters need an explicit type.
 const SCHEMA_QUERY = `
-  SELECT col.name AS ColumnName, types.name AS DataType, col.max_length AS MaxLength, tbl.name AS TableName
-  FROM sys.columns col WITH (NOLOCK)
-  INNER JOIN sys.types types WITH (NOLOCK) ON col.user_type_id = types.user_type_id
-  LEFT OUTER JOIN sys.tables tbl WITH (NOLOCK) ON tbl.object_id = col.object_id
-  WHERE tbl.name IS NOT NULL AND tbl.name <> 'sysdiagrams'
-  ORDER BY tbl.name`;
+  SELECT SCHEMA_NAME(obj.schema_id) AS SchemaName, obj.name AS ObjectName, col.name AS ColumnName,
+         COALESCE(base.name, typ.name) AS DataType, col.max_length AS MaxLength,
+         col.[precision] AS NumericPrecision, col.scale AS NumericScale
+  FROM sys.columns col
+  INNER JOIN sys.objects obj ON obj.object_id = col.object_id
+  INNER JOIN sys.types typ ON typ.user_type_id = col.user_type_id
+  LEFT JOIN sys.types base ON base.user_type_id = typ.system_type_id
+  WHERE obj.type IN ('U', 'V') AND obj.is_ms_shipped = 0 AND obj.name <> 'sysdiagrams' AND typ.is_assembly_type = 0`;
+
+const emptySchema = (): Schema => ({ tables: new Map(), qualified: new Map() });
 
 function isTypedValue(value: unknown): value is TypedValue {
   return typeof value === 'object' && value !== null && 'datatype' in value && 'value' in value;
 }
 
+/** Values the schema can type: everything but tables, arrays and other objects. */
+function isScalar(value: unknown): boolean {
+  return typeof value !== 'object' || value === null || value instanceof Date || Buffer.isBuffer(value);
+}
+
 /**
- * MSSQL connection pool. On init it loads the column types of every table, so query inputs named after a column get
- * that column's SQL type and length automatically.
+ * MSSQL connection pool. On init it loads the declared type of every table and view column, so query inputs named
+ * after a column are sent with exactly that column's SQL type (length, precision and scale included).
  *
  * ```ts
  * import mssql from '#connectors/mssql/mssql';
@@ -50,9 +94,11 @@ function isTypedValue(value: unknown): value is TypedValue {
 export class MssqlConnector implements Connector {
   readonly name = 'mssql';
   private pool?: ConnectionPool;
-  private schema: Record<string, ColumnDetails[]> = {};
+  private schema = emptySchema();
   /** The driver's type factories (`sql.TYPES`) by lowercase name: `sys.types` names are lowercase. */
-  private types = new Map<string, { name: string; factory: TypeFactory }>();
+  private types = new Map<string, TypeFactory>();
+  /** The driver's length for `(MAX)` types. */
+  private max = 0;
   /** Incremented by init() and close(), so an init() still loading the client knows it was closed meanwhile. */
   private generation = 0;
 
@@ -73,11 +119,9 @@ export class MssqlConnector implements Connector {
     const pool = new sql.ConnectionPool(poolConfig);
     pool.on('error', (error) => logger.error({ info: 'MSSQL pool error', error }));
     this.types = new Map(
-      Object.entries(sql.TYPES as Record<string, TypeFactory>).map(([name, factory]) => [
-        name.toLowerCase(),
-        { name, factory },
-      ]),
+      Object.entries(sql.TYPES as Record<string, TypeFactory>).map(([name, factory]) => [name.toLowerCase(), factory]),
     );
+    this.max = sql.MAX;
     // Assigned before connecting, so close() can stop a connection attempt
     this.pool = pool;
     try {
@@ -96,7 +140,7 @@ export class MssqlConnector implements Connector {
     this.generation++;
     const pool = this.pool;
     this.pool = undefined;
-    this.schema = {};
+    this.schema = emptySchema();
     await pool?.close();
   }
 
@@ -105,8 +149,9 @@ export class MssqlConnector implements Connector {
   }
 
   /**
-   * Runs a parameterised query (`@name` placeholders). Inputs named after a column of one of `tables` are typed from
-   * the schema; `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
+   * Runs a parameterised query (`@name` placeholders). Inputs named after a column of one of `tables` (tables or
+   * views, `name` or `schema.name`) are sent with that column's declared type, and rejected when too long for it;
+   * `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
    */
   async executeQuery<T = any>(query: string, inputs: Record<string, unknown> = {}, tables: string[] = []) {
     const request = this.request();
@@ -152,46 +197,104 @@ export class MssqlConnector implements Connector {
   }
 
   private sqlType(value: TypedValue): ISqlType {
-    const type = this.types.get(value.datatype.toLowerCase());
-    if (!type) throw new Error(`MSSQL: unknown datatype "${value.datatype}"`);
-    return value.typeLength === undefined ? type.factory() : type.factory(value.typeLength);
+    const factory = this.types.get(value.datatype.toLowerCase());
+    if (!factory) throw new Error(`MSSQL: unknown datatype "${value.datatype}"`);
+    return factory(...[value.typeLength, value.scale].filter((argument) => argument !== undefined));
   }
 
   private addParameters(request: Request, kind: 'input' | 'output', parameters: Record<string, unknown>) {
-    for (const [name, value] of Object.entries(parameters)) {
-      if (isTypedValue(value)) {
-        if (kind === 'input') request.input(name, this.sqlType(value), value.value);
-        else request.output(name, this.sqlType(value), value.value);
-      } else if (kind === 'input') {
-        request.input(name, value);
-      } else {
-        throw new Error(`MSSQL: output parameter "${name}" needs a TypedValue`);
-      }
+    for (const [name, parameter] of Object.entries(parameters)) {
+      const typed = isTypedValue(parameter) ? new TypedParameter(this.sqlType(parameter), parameter.value) : parameter;
+      if (typed instanceof TypedParameter) request[kind](name, typed.type, typed.value);
+      else if (kind === 'input') request.input(name, typed);
+      else throw new Error(`MSSQL: output parameter "${name}" needs a TypedValue`);
     }
   }
 
+  /**
+   * Gives the inputs named after a column of `tables` that column's declared type (the first table having the column
+   * wins). Explicit `TypedValue`s and non-scalar values are left as they are.
+   */
   private typeFromSchema(inputs: Record<string, unknown>, tables: string[]): Record<string, unknown> {
-    const columns = tables.flatMap((table) => this.schema[table] ?? []);
+    const columns = tables.map((table) => this.columnsOf(table));
     return Object.fromEntries(
       Object.entries(inputs).map(([name, value]) => {
-        const column = columns.find((c) => c.ColumnName === name);
-        if (!column || isTypedValue(value) || (typeof value === 'object' && value !== null)) return [name, value];
-        const length = typeof value === 'string' ? value.length : undefined;
-        // MaxLength is -1 for (N)VARCHAR(MAX): use the value's length
-        const typeLength = column.MaxLength < 0 ? length : Math.min(length ?? column.MaxLength, column.MaxLength);
-        return [name, { datatype: column.DataType, typeLength, value } satisfies TypedValue];
+        if (isTypedValue(value) || !isScalar(value)) return [name, value];
+        const column = columns.map((table) => table.get(name.toLowerCase())).find((found) => found !== undefined);
+        if (!column) return [name, value];
+        // A value that does not fit would be truncated silently by the declared length
+        const length = typeof value === 'string' || Buffer.isBuffer(value) ? value.length : 0;
+        if (column.maxLength !== undefined && length > column.maxLength) {
+          throw new Error(
+            `MSSQL: the value of "${name}" (length ${length}) does not fit ${column.path} (${column.maxLength})`,
+          );
+        }
+        return [name, new TypedParameter(column.type, value)];
       }),
     );
   }
 
-  private async loadSchema(): Promise<Record<string, ColumnDetails[]>> {
-    const { recordset } = await this.executeQuery<ColumnDetails>(SCHEMA_QUERY);
-    const schema: Record<string, ColumnDetails[]> = {};
-    for (const column of recordset) {
-      const type = this.types.get(column.DataType.toLowerCase())?.name ?? column.DataType;
-      (schema[column.TableName] ??= []).push({ ...column, DataType: type });
+  /** Columns of a table or view, given as `name` or `schema.name` (brackets allowed). */
+  private columnsOf(table: string): Map<string, Column> {
+    const name = table.replace(/[[\]"]/g, '').toLowerCase();
+    const keys = name.includes('.') ? [name] : (this.schema.qualified.get(name) ?? []);
+    if (keys.length > 1) {
+      throw new Error(`MSSQL: table "${table}" exists in several schemas (${keys.join(', ')}): add the schema`);
+    }
+    const columns = this.schema.tables.get(keys[0] ?? name);
+    if (!columns) throw new Error(`MSSQL: unknown table or view "${table}"`);
+    return columns;
+  }
+
+  private async loadSchema(): Promise<Schema> {
+    const { recordset } = await this.executeQuery<ColumnRow>(SCHEMA_QUERY);
+    const schema = emptySchema();
+    for (const row of recordset) {
+      const column = this.column(row);
+      // No type factory in the driver (e.g. timestamp): inputs for this column are left to the driver
+      if (!column) continue;
+      const name = row.ObjectName.toLowerCase();
+      const key = `${row.SchemaName.toLowerCase()}.${name}`;
+      let columns = schema.tables.get(key);
+      if (!columns) {
+        schema.tables.set(key, (columns = new Map()));
+        schema.qualified.set(name, [...(schema.qualified.get(name) ?? []), key]);
+      }
+      columns.set(row.ColumnName.toLowerCase(), column);
     }
     return schema;
+  }
+
+  /** The driver type declared exactly like the column: character length, precision and scale included. */
+  private column(row: ColumnRow): Column | undefined {
+    const dataType = row.DataType.toLowerCase();
+    const factory = this.types.get(dataType);
+    if (!factory) return undefined;
+    const path = `${row.SchemaName}.${row.ObjectName}.${row.ColumnName}`;
+    // max_length is in bytes (two per character for nchar/nvarchar), -1 for (MAX)
+    const sized = (bytesPerUnit: number): Column => {
+      const maxLength = row.MaxLength < 0 ? undefined : row.MaxLength / bytesPerUnit;
+      return { path, type: factory(maxLength ?? this.max), maxLength };
+    };
+    switch (dataType) {
+      case 'nchar':
+      case 'nvarchar':
+        return sized(2);
+      case 'char':
+      case 'varchar':
+      case 'binary':
+      case 'varbinary':
+        return sized(1);
+      case 'decimal':
+      case 'numeric':
+        return { path, type: factory(row.NumericPrecision, row.NumericScale) };
+      case 'time':
+      case 'datetime2':
+      case 'datetimeoffset':
+        return { path, type: factory(row.NumericScale) };
+      default:
+        return { path, type: factory() };
+    }
   }
 }
 
