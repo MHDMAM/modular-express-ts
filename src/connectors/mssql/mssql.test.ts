@@ -51,9 +51,7 @@ vi.mock('mssql', () => {
   library.loaded = true;
   const sql = {
     ConnectionPool: FakePool,
-    VarChar: sqlType('VarChar'),
-    NVarChar: sqlType('NVarChar'),
-    Int: sqlType('Int'),
+    TYPES: { VarChar: sqlType('VarChar'), NVarChar: sqlType('NVarChar'), Int: sqlType('Int') },
   };
   // Like the real package under ES modules: everything is on the default export
   return { default: sql };

@@ -11,7 +11,7 @@ export interface MssqlConfig extends PoolConfig {
 
 /** A parameter with an explicit SQL type, e.g. `{ datatype: 'VarChar', typeLength: 50, value: 'x' }`. */
 export interface TypedValue {
-  /** Name of an mssql type factory: `VarChar`, `NVarChar`, `Int`, `DateTime2`, ... */
+  /** Name of one of the driver's type factories (`sql.TYPES`, any case): `VarChar`, `NVarChar`, `Int`, ... */
   datatype: string;
   typeLength?: number;
   value: unknown;
@@ -24,40 +24,7 @@ interface ColumnDetails {
   TableName: string;
 }
 
-/** mssql type factories, used to map `sys.types` names (lowercase) to the factory names. */
-const TYPES = [
-  'Char',
-  'NChar',
-  'VarChar',
-  'NVarChar',
-  'Text',
-  'NText',
-  'Int',
-  'BigInt',
-  'TinyInt',
-  'SmallInt',
-  'Bit',
-  'Float',
-  'Real',
-  'Money',
-  'SmallMoney',
-  'Numeric',
-  'Decimal',
-  'DateTime',
-  'Time',
-  'Date',
-  'DateTime2',
-  'DateTimeOffset',
-  'SmallDateTime',
-  'UniqueIdentifier',
-  'Image',
-  'Binary',
-  'VarBinary',
-  'Xml',
-  'UDT',
-  'TVP',
-  'Variant',
-];
+type TypeFactory = (...args: number[]) => ISqlType;
 
 const SCHEMA_QUERY = `
   SELECT col.name AS ColumnName, types.name AS DataType, col.max_length AS MaxLength, tbl.name AS TableName
@@ -82,9 +49,10 @@ function isTypedValue(value: unknown): value is TypedValue {
  */
 export class MssqlConnector implements Connector {
   readonly name = 'mssql';
-  private sql?: typeof import('mssql');
   private pool?: ConnectionPool;
   private schema: Record<string, ColumnDetails[]> = {};
+  /** The driver's type factories (`sql.TYPES`) by lowercase name: `sys.types` names are lowercase. */
+  private types = new Map<string, { name: string; factory: TypeFactory }>();
   /** Incremented by init() and close(), so an init() still loading the client knows it was closed meanwhile. */
   private generation = 0;
 
@@ -104,7 +72,12 @@ export class MssqlConnector implements Connector {
     const { enabled: _enabled, ...poolConfig } = this.config;
     const pool = new sql.ConnectionPool(poolConfig);
     pool.on('error', (error) => logger.error({ info: 'MSSQL pool error', error }));
-    this.sql = sql;
+    this.types = new Map(
+      Object.entries(sql.TYPES as Record<string, TypeFactory>).map(([name, factory]) => [
+        name.toLowerCase(),
+        { name, factory },
+      ]),
+    );
     this.pool = pool;
     await pool.connect();
     this.schema = await this.loadSchema();
@@ -169,10 +142,9 @@ export class MssqlConnector implements Connector {
   }
 
   private sqlType(value: TypedValue): ISqlType {
-    // Only known type factories: `datatype` must never resolve to another export of the driver
-    if (!TYPES.includes(value.datatype)) throw new Error(`MSSQL: unknown datatype "${value.datatype}"`);
-    const factory = (this.sql as any)[value.datatype];
-    return value.typeLength === undefined ? factory() : factory(value.typeLength);
+    const type = this.types.get(value.datatype.toLowerCase());
+    if (!type) throw new Error(`MSSQL: unknown datatype "${value.datatype}"`);
+    return value.typeLength === undefined ? type.factory() : type.factory(value.typeLength);
   }
 
   private addParameters(request: Request, kind: 'input' | 'output', parameters: Record<string, unknown>) {
@@ -206,7 +178,7 @@ export class MssqlConnector implements Connector {
     const { recordset } = await this.executeQuery<ColumnDetails>(SCHEMA_QUERY);
     const schema: Record<string, ColumnDetails[]> = {};
     for (const column of recordset) {
-      const type = TYPES.find((t) => t.toLowerCase() === column.DataType.toLowerCase()) ?? column.DataType;
+      const type = this.types.get(column.DataType.toLowerCase())?.name ?? column.DataType;
       (schema[column.TableName] ??= []).push({ ...column, DataType: type });
     }
     return schema;
