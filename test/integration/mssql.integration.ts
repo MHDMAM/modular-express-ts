@@ -119,7 +119,7 @@ describe('schema', () => {
     ['c_datetime2_3', new Date(), { type: 'datetime2', scale: 3 }],
     ['c_datetimeoffset', new Date(), { type: 'datetimeoffset', scale: 2 }],
     ['c_uniqueidentifier', randomUUID(), { type: 'uniqueidentifier' }],
-    ['c_binary', Buffer.alloc(4), { type: 'binary', bytes: 4 }],
+    ['c_binary', Buffer.from([1]), { type: 'binary', bytes: 4 }],
     ['c_varbinary', Buffer.from([1]), { type: 'varbinary', bytes: 8 }],
     // sysname and alias types resolve to their base type
     ['c_sysname', 'x', { type: 'nvarchar', bytes: 256 }],
@@ -274,6 +274,22 @@ describe('values', () => {
     );
 
     expect(recordset).toEqual([{ id, wkt: 'POINT (3 51)', node: '/1/2/', c_variant: 42 }]);
+  });
+
+  it('accepts a binary(n) value shorter than n, padded like the server stores it', async () => {
+    const inserted = await mssql.executeQuery<{ id: number; c_binary: Buffer }>(
+      'INSERT INTO dbo.everything (c_binary) OUTPUT INSERTED.id, INSERTED.c_binary VALUES (@c_binary)',
+      { c_binary: Buffer.from([1, 2]) },
+      ['everything'],
+    );
+    const found = await mssql.executeQuery<{ id: number }>(
+      'SELECT id FROM dbo.everything WHERE c_binary = @c_binary',
+      { c_binary: Buffer.from([1, 2]) },
+      ['everything'],
+    );
+
+    expect(inserted.recordset[0].c_binary).toEqual(Buffer.from([1, 2, 0, 0]));
+    expect(found.recordset).toEqual([{ id: inserted.recordset[0].id }]);
   });
 
   it('uses explicit types as given', async () => {

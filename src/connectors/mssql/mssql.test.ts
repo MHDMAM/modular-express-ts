@@ -32,6 +32,7 @@ const schemaRows = [
   column('dbo.users', 'balance', 'decimal', 9, 18, 4),
   column('dbo.users', 'created_at', 'datetime2', 8, 27, 7),
   column('dbo.users', 'avatar', 'varbinary', 4),
+  column('dbo.users', 'pin_hash', 'binary', 4),
   column('dbo.users', 'version', 'timestamp', 8), // no type factory in the driver
   column('dbo.orders', 'id', 'int', 4, 10, 0),
   column('audit.orders', 'id', 'bigint', 8, 19, 0),
@@ -122,7 +123,7 @@ class FakePool extends EventEmitter {
 }
 
 const sqlType = (type: string) => vi.fn((...args: number[]) => ({ type, args }));
-const typeNames = ['VarChar', 'NVarChar', 'Int', 'BigInt', 'Decimal', 'DateTime2', 'VarBinary'];
+const typeNames = ['VarChar', 'NVarChar', 'Int', 'BigInt', 'Decimal', 'DateTime2', 'VarBinary', 'Binary'];
 
 vi.mock('mssql', () => {
   library.loaded = true;
@@ -236,6 +237,23 @@ describe('MssqlConnector', () => {
     await expect(
       mssql.executeQuery('SELECT 1', { name: 'x'.repeat(50), bio: 'x'.repeat(9000) }, ['users']),
     ).resolves.toBeDefined();
+  });
+
+  it('pads a short binary(n) value to n bytes', async () => {
+    const mssql = await connected();
+
+    await mssql.executeQuery(
+      'SELECT @pin_hash, @avatar',
+      { pin_hash: Buffer.from([1, 2]), avatar: Buffer.from([1, 2]) },
+      ['users'],
+    );
+
+    expect(lastRequest().inputs).toEqual([
+      ['pin_hash', { type: 'Binary', args: [4] }, Buffer.from([1, 2, 0, 0])],
+      ['avatar', { type: 'VarBinary', args: [4] }, Buffer.from([1, 2])],
+    ]);
+    await mssql.executeQuery('SELECT @pin_hash', { pin_hash: null }, ['users']);
+    expect(lastRequest().inputs).toEqual([['pin_hash', { type: 'Binary', args: [4] }, null]]);
   });
 
   it('resolves tables by schema, and rejects unknown and ambiguous ones', async () => {

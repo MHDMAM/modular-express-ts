@@ -58,6 +58,8 @@ interface Column {
   type: ISqlType;
   /** Characters (strings) or bytes (binary) the column holds; undefined when unlimited or not applicable. */
   maxLength?: number;
+  /** `binary(n)`: shorter values are zero-padded to `n`, as the server stores them. */
+  fixedBinary?: boolean;
 }
 
 /** Tables and views with their columns, or procedures with their parameters. */
@@ -406,7 +408,9 @@ export class MssqlConnector implements Connector {
             `MSSQL: the value of "${name}" (length ${length}) does not fit ${column.path} (${column.maxLength})`,
           );
         }
-        return [name, new TypedParameter(column.type, value)];
+        // The driver sends a binary(n) value shorter than n as a broken packet, which the server rejects
+        const padded = column.fixedBinary && Buffer.isBuffer(value) ? Buffer.concat([value], column.maxLength) : value;
+        return [name, new TypedParameter(column.type, padded)];
       }),
     );
   }
@@ -510,9 +514,10 @@ export class MssqlConnector implements Connector {
       case 'nchar':
       case 'nvarchar':
         return sized(2);
+      case 'binary':
+        return { ...sized(1), fixedBinary: true };
       case 'char':
       case 'varchar':
-      case 'binary':
       case 'varbinary':
         return sized(1);
       case 'decimal':
