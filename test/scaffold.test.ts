@@ -122,6 +122,13 @@ describe('scaffold', () => {
     expect(read(dir, 'src/connectors/index.ts')).toContain(`= [${registered.join(', ')}];`);
     expect(existsSync(join(dir, 'src/connectors/cache.ts'))).toBe(keep.includes('hazelcast') || keep.includes('redis'));
 
+    // Only MSSQL has tests against a real server: without it, nothing of them is left
+    const integration = keep.includes('mssql');
+    for (const file of ['test/integration', 'vitest.integration.config.ts'])
+      expect(existsSync(join(dir, file)), file).toBe(integration);
+    for (const file of ['package.json', 'README.md', '.github/workflows/ci.yml'])
+      expect(read(dir, file).includes('integration'), `${file} mentions integration tests`).toBe(integration);
+
     const readme = read(dir, 'README.md');
     expect(readme.startsWith('# @acme/my-app\n\nCreated with [modular-express-ts]')).toBe(true);
     expect(readme.includes('## Optional Connectors')).toBe(registered.length > 0);

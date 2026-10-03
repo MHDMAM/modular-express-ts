@@ -27,9 +27,9 @@
       "label": "MSSQL",
       "hint": "connection pool with schema-aware query inputs (mssql)",
       "default": false,
-      "files": ["src/connectors/mssql"],
+      "files": ["src/connectors/mssql", "test/integration/mssql.integration.ts"],
       "dependencies": ["mssql"],
-      "devDependencies": ["@types/mssql"],
+      "devDependencies": ["@types/mssql", "@testcontainers/mssqlserver"],
       "edits": [
         { "file": "src/connectors/index.ts", "removeLine": "import mssql from './mssql/mssql.js';" },
         {
@@ -99,6 +99,21 @@
   ],
   "whenNoneKept": [
     { "features": ["hazelcast", "redis"], "files": ["src/connectors/cache.ts"] },
+    {
+      "features": ["mssql"],
+      "files": ["test/integration", "vitest.integration.config.ts"],
+      "edits": [
+        {
+          "file": "package.json",
+          "removeLine": "    \"test:integration\": \"vitest run --config vitest.integration.config.ts\","
+        },
+        {
+          "file": "README.md",
+          "removeLine": "`npm run test:integration` runs the connector tests in `test/integration/` against real servers (needs Docker)."
+        },
+        { "file": ".github/workflows/ci.yml", "removeBlock": "  integration:" }
+      ]
+    },
     {
       "features": ["mssql", "kafka", "hazelcast", "redis"],
       "edits": [{ "file": "README.md", "removeSection": "Optional Connectors" }]

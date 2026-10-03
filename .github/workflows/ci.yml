@@ -26,3 +26,14 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration

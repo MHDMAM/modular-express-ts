@@ -39,6 +39,8 @@ curl localhost:3000/api/v1/health
 | `npm run format:check` | Check formatting (as CI does)                                |
 | `npm test`             | Run the Vitest tests (`npm run test:watch` to watch)         |
 
+`npm run test:integration` runs the connector tests in `test/integration/` against real servers (needs Docker).
+
 ## Project Structure
 
 ```
