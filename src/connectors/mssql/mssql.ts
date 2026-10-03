@@ -83,8 +83,9 @@ function isScalar(value: unknown): boolean {
 }
 
 /**
- * MSSQL connection pool. On init it loads the declared type of every table and view column, so query inputs named
- * after a column are sent with exactly that column's SQL type (length, precision and scale included).
+ * MSSQL connection pool. Once connected it loads, in the background, the declared type of every table and view column,
+ * so query inputs named after a column are sent with exactly that column's SQL type (length, precision and scale
+ * included). Statements that need the schema wait for it; the others run straight away.
  *
  * ```ts
  * import mssql from '#connectors/mssql/mssql';
@@ -94,7 +95,8 @@ function isScalar(value: unknown): boolean {
 export class MssqlConnector implements Connector {
   readonly name = 'mssql';
   private pool?: ConnectionPool;
-  private schema = emptySchema();
+  /** Started by init() and awaited by the statements that need it; cleared when the load fails, so it is retried. */
+  private schema?: Promise<Schema>;
   /** The driver's type factories (`sql.TYPES`) by lowercase name: `sys.types` names are lowercase. */
   private types = new Map<string, TypeFactory>();
   /** The driver's length for `(MAX)` types. */
@@ -127,20 +129,23 @@ export class MssqlConnector implements Connector {
     try {
       await pool.connect();
       if (generation !== this.generation) throw new Error('MSSQL connector was closed during init');
-      this.schema = await this.loadSchema();
     } catch (error) {
       // Never left half-open: released unless close() or a newer init() already replaced it
       if (this.pool === pool) this.pool = undefined;
       await pool.close().catch(() => undefined);
       throw error;
     }
+    // Not awaited: the connector is ready as soon as it is connected
+    this.loadedSchema().catch((error) => {
+      if (generation === this.generation) logger.error({ info: 'MSSQL schema load failed', error });
+    });
   }
 
   async close(): Promise<void> {
     this.generation++;
     const pool = this.pool;
     this.pool = undefined;
-    this.schema = emptySchema();
+    this.schema = undefined;
     await pool?.close();
   }
 
@@ -154,8 +159,9 @@ export class MssqlConnector implements Connector {
    * `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
    */
   async executeQuery<T = any>(query: string, inputs: Record<string, unknown> = {}, tables: string[] = []) {
+    const typedInputs = await this.typeFromSchema(inputs, tables);
     const request = this.request();
-    this.addParameters(request, 'input', this.typeFromSchema(inputs, tables));
+    this.addParameters(request, 'input', typedInputs);
     return this.run<IResult<T>>({ query }, () => request.query<T>(query));
   }
 
@@ -166,8 +172,9 @@ export class MssqlConnector implements Connector {
     outputs: Record<string, TypedValue> = {},
     tables: string[] = [],
   ) {
+    const typedInputs = await this.typeFromSchema(inputs, tables);
     const request = this.request();
-    this.addParameters(request, 'input', this.typeFromSchema(inputs, tables));
+    this.addParameters(request, 'input', typedInputs);
     this.addParameters(request, 'output', outputs);
     return this.run<IProcedureResult<T>>({ procedure }, () => request.execute<T>(procedure));
   }
@@ -215,8 +222,10 @@ export class MssqlConnector implements Connector {
    * Gives the inputs named after a column of `tables` that column's declared type (the first table having the column
    * wins). Explicit `TypedValue`s and non-scalar values are left as they are.
    */
-  private typeFromSchema(inputs: Record<string, unknown>, tables: string[]): Record<string, unknown> {
-    const columns = tables.map((table) => this.columnsOf(table));
+  private async typeFromSchema(inputs: Record<string, unknown>, tables: string[]): Promise<Record<string, unknown>> {
+    if (!tables.length) return inputs;
+    const schema = await this.loadedSchema();
+    const columns = tables.map((table) => this.columnsOf(schema, table));
     return Object.fromEntries(
       Object.entries(inputs).map(([name, value]) => {
         if (isTypedValue(value) || !isScalar(value)) return [name, value];
@@ -235,18 +244,30 @@ export class MssqlConnector implements Connector {
   }
 
   /** Columns of a table or view, given as `name` or `schema.name` (brackets allowed). */
-  private columnsOf(table: string): Map<string, Column> {
+  private columnsOf(schema: Schema, table: string): Map<string, Column> {
     const name = table.replace(/[[\]"]/g, '').toLowerCase();
-    const keys = name.includes('.') ? [name] : (this.schema.qualified.get(name) ?? []);
+    const keys = name.includes('.') ? [name] : (schema.qualified.get(name) ?? []);
     if (keys.length > 1) {
       throw new Error(`MSSQL: table "${table}" exists in several schemas (${keys.join(', ')}): add the schema`);
     }
-    const columns = this.schema.tables.get(keys[0] ?? name);
+    const columns = schema.tables.get(keys[0] ?? name);
     if (!columns) throw new Error(`MSSQL: unknown table or view "${table}"`);
     return columns;
   }
 
+  private loadedSchema(): Promise<Schema> {
+    if (!this.schema) {
+      const load: Promise<Schema> = this.loadSchema().catch((error) => {
+        if (this.schema === load) this.schema = undefined;
+        throw error;
+      });
+      this.schema = load;
+    }
+    return this.schema;
+  }
+
   private async loadSchema(): Promise<Schema> {
+    const start = Date.now();
     const { recordset } = await this.executeQuery<ColumnRow>(SCHEMA_QUERY);
     const schema = emptySchema();
     for (const row of recordset) {
@@ -262,6 +283,7 @@ export class MssqlConnector implements Connector {
       }
       columns.set(row.ColumnName.toLowerCase(), column);
     }
+    logger.info({ info: 'MSSQL schema loaded', tables: schema.tables.size, durationMs: Date.now() - start });
     return schema;
   }
 

@@ -283,19 +283,50 @@ describe('MssqlConnector', () => {
     connect.mockRestore();
   });
 
-  it('releases the pool when the schema cannot be loaded', async () => {
-    const mssql = new MssqlConnector(baseConfig);
+  it('is ready before the schema is loaded, and makes the statements that need it wait', async () => {
+    let loaded!: () => void;
+    const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
+      const slow = new FakeRequest();
+      const query = slow.query.getMockImplementation()!;
+      slow.query.mockImplementationOnce(async (command) => {
+        await new Promise<void>((resolve) => (loaded = resolve));
+        return query(command);
+      });
+      return slow;
+    });
+    const mssql = await connected();
+    expect(mssql.isReady()).toBe(true);
+
+    // No tables: runs without the schema
+    await mssql.executeQuery('SELECT @email', { email: 'a@b.c' });
+    expect(lastRequest().inputs).toEqual([['email', 'a@b.c']]);
+
+    const waiting = mssql.executeQuery('SELECT @email', { email: 'a@b.c' }, ['users']);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(FakePool.last.requests).toHaveLength(2);
+
+    loaded();
+    await waiting;
+    expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
+    request.mockRestore();
+  });
+
+  it('logs a failed schema load and retries it for the next statement that needs it', async () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
     const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
       const failing = new FakeRequest();
       failing.query.mockRejectedValueOnce(new Error('no permission'));
       return failing;
     });
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const mssql = await connected();
 
-    await expect(mssql.init()).rejects.toThrow('no permission');
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ info: 'MSSQL schema load failed' })),
+    );
+    expect(mssql.isReady()).toBe(true);
 
-    expect(FakePool.last.close).toHaveBeenCalled();
-    expect(mssql.isReady()).toBe(false);
+    await mssql.executeQuery('SELECT @email', { email: 'a@b.c' }, ['users']);
+    expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
     request.mockRestore();
     error.mockRestore();
   });
