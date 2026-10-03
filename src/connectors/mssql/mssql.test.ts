@@ -36,10 +36,19 @@ class FakePool extends EventEmitter {
     super();
     FakePool.last = this;
   }
-  connect = vi.fn(async () => ((this.connected = true), this));
+  /** On the prototype, so a test can make the next pool's connection fail or wait. */
+  async connectOnce(): Promise<void> {}
+  newRequest(): FakeRequest {
+    return new FakeRequest();
+  }
+  connect = vi.fn(async () => {
+    await this.connectOnce();
+    this.connected = true;
+    return this;
+  });
   close = vi.fn(async () => void (this.connected = false));
   request = vi.fn(() => {
-    const request = new FakeRequest();
+    const request = this.newRequest();
     this.requests.push(request);
     return request;
   });
@@ -176,6 +185,58 @@ describe('MssqlConnector', () => {
     expect(FakePool.last.close).toHaveBeenCalled();
     expect(mssql.isReady()).toBe(false);
     await expect(mssql.executeQuery('SELECT 1')).rejects.toThrow('not ready');
+  });
+
+  it('says so when it is disabled', async () => {
+    const mssql = new MssqlConnector({ ...baseConfig, enabled: false });
+
+    await expect(mssql.executeQuery('SELECT 1')).rejects.toThrow('disabled');
+  });
+
+  it('releases the pool when connecting fails', async () => {
+    const mssql = new MssqlConnector(baseConfig);
+    const connect = vi.spyOn(FakePool.prototype, 'connectOnce').mockRejectedValueOnce(new Error('ESOCKET'));
+
+    await expect(mssql.init()).rejects.toThrow('ESOCKET');
+
+    expect(FakePool.last.close).toHaveBeenCalled();
+    expect(mssql.isReady()).toBe(false);
+    await expect(mssql.executeQuery('SELECT 1')).rejects.toThrow('not ready');
+    connect.mockRestore();
+  });
+
+  it('releases the pool when the schema cannot be loaded', async () => {
+    const mssql = new MssqlConnector(baseConfig);
+    const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
+      const failing = new FakeRequest();
+      failing.query.mockRejectedValueOnce(new Error('no permission'));
+      return failing;
+    });
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+    await expect(mssql.init()).rejects.toThrow('no permission');
+
+    expect(FakePool.last.close).toHaveBeenCalled();
+    expect(mssql.isReady()).toBe(false);
+    request.mockRestore();
+    error.mockRestore();
+  });
+
+  it('aborts an init that is still connecting when closed', async () => {
+    const mssql = new MssqlConnector(baseConfig);
+    let connected!: () => void;
+    const connect = vi
+      .spyOn(FakePool.prototype, 'connectOnce')
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (connected = resolve)));
+
+    const initializing = mssql.init();
+    await vi.waitFor(() => expect(connect).toHaveBeenCalled());
+    await mssql.close();
+    connected();
+
+    await expect(initializing).rejects.toThrow('closed during init');
+    expect(mssql.isReady()).toBe(false);
+    connect.mockRestore();
   });
 
   it('aborts an init still loading the client when closed', async () => {

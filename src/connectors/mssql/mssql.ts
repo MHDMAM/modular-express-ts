@@ -78,9 +78,18 @@ export class MssqlConnector implements Connector {
         { name, factory },
       ]),
     );
+    // Assigned before connecting, so close() can stop a connection attempt
     this.pool = pool;
-    await pool.connect();
-    this.schema = await this.loadSchema();
+    try {
+      await pool.connect();
+      if (generation !== this.generation) throw new Error('MSSQL connector was closed during init');
+      this.schema = await this.loadSchema();
+    } catch (error) {
+      // Never left half-open: released unless close() or a newer init() already replaced it
+      if (this.pool === pool) this.pool = undefined;
+      await pool.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   async close(): Promise<void> {
@@ -119,7 +128,8 @@ export class MssqlConnector implements Connector {
   }
 
   private request(): Request {
-    if (!this.pool) throw new Error('MSSQL connector is not ready');
+    if (!this.config.enabled) throw new Error('MSSQL connector is disabled (set MSSQL_ENABLED=true)');
+    if (!this.pool?.connected) throw new Error('MSSQL connector is not ready');
     return this.pool.request();
   }
 
