@@ -69,6 +69,8 @@ class FakeRequest extends EventEmitter {
   overrides?: unknown;
   /** The connected user's default schema, as returned with the schema. */
   static defaultSchema: string | null = 'dbo';
+  /** Set to make the health check's ping fail, like a server that went away. */
+  static down = false;
   /** Rows of a streamed query; an `Error` among them fails the stream at that point. */
   static streamed: unknown[] = [];
   /** Like the driver: rows are pushed to the stream, then `done` is emitted (after an error too). */
@@ -92,15 +94,18 @@ class FakeRequest extends EventEmitter {
   outputs: unknown[][] = [];
   input = vi.fn((...args: unknown[]) => (this.inputs.push(args), this));
   output = vi.fn((...args: unknown[]) => (this.outputs.push(args), this));
-  query = vi.fn(async (command: string) =>
+  query = vi.fn(async (command: string) => {
+    if (command === 'SELECT 1' && FakeRequest.down) throw new Error('ESOCKET');
+    return this.result(command);
+  });
+  result = (command: string) =>
     command.includes('sys.columns')
       ? { recordset: schemaRows, rowsAffected: [schemaRows.length] }
       : command.includes('sys.parameters')
         ? { recordset: parameterRows, rowsAffected: [parameterRows.length] }
         : command.includes('AS DefaultSchema')
           ? { recordset: [{ DefaultSchema: FakeRequest.defaultSchema, CodePage: 1252 }], rowsAffected: [1] }
-          : { recordset: [{ id: 1 }], rowsAffected: [1] },
-  );
+          : { recordset: [{ id: 1 }], rowsAffected: [1] };
   execute = vi.fn(async (_procedure: string) => ({ recordset: [], rowsAffected: [0], output: {}, returnValue: 0 }));
 }
 
@@ -557,6 +562,26 @@ describe('MssqlConnector', () => {
     expect(FakePool.last.close).toHaveBeenCalled();
     expect(mssql.isReady()).toBe(false);
     await expect(mssql.executeQuery('SELECT 1')).rejects.toThrow('not ready');
+  });
+
+  it('is not ready while its health check fails, and ready again when it passes', async () => {
+    const mssql = new MssqlConnector({ ...baseConfig, healthCheckIntervalMs: 5 });
+    await mssql.init();
+    const pool = FakePool.last;
+    expect(pool.config).not.toHaveProperty('healthCheckIntervalMs');
+    expect(mssql.isReady()).toBe(true);
+
+    FakeRequest.down = true;
+    await vi.waitFor(() => expect(mssql.isReady()).toBe(false), { interval: 1 });
+    expect(pool.requests.at(-1)!.overrides).toEqual({ requestTimeout: 5 });
+
+    FakeRequest.down = false;
+    await vi.waitFor(() => expect(mssql.isReady()).toBe(true), { interval: 1 });
+
+    await mssql.close();
+    const pings = pool.requests.length;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(pool.requests).toHaveLength(pings);
   });
 
   it('says so when it is disabled', async () => {

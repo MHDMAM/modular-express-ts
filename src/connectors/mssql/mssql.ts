@@ -15,6 +15,8 @@ import logger from '#core/logger';
 
 export interface MssqlConfig extends PoolConfig {
   enabled: boolean;
+  /** How often the server is pinged for `isReady()`; 0 or undefined disables it. */
+  healthCheckIntervalMs?: number;
 }
 
 /** A parameter with an explicit SQL type, e.g. `{ datatype: 'VarChar', typeLength: 50, value: 'x' }`. */
@@ -185,6 +187,9 @@ export class MssqlConnector implements Connector {
   private types = new Map<string, TypeFactory>();
   /** The driver's length for `(MAX)` types. */
   private max = 0;
+  /** False once a health check failed, until one succeeds again. */
+  private healthy = true;
+  private healthTimer?: NodeJS.Timeout;
   /** Incremented by init() and close(), so an init() still loading the client knows it was closed meanwhile. */
   private generation = 0;
 
@@ -201,7 +206,7 @@ export class MssqlConnector implements Connector {
     const { default: sql } = await import('mssql');
     if (generation !== this.generation) throw new Error('MSSQL connector was closed during init');
 
-    const { enabled: _enabled, ...poolConfig } = this.config;
+    const { enabled: _enabled, healthCheckIntervalMs, ...poolConfig } = this.config;
     const pool = new sql.ConnectionPool(poolConfig);
     pool.on('error', (error) => logger.error({ info: 'MSSQL pool error', error }));
     this.types = new Map(
@@ -220,6 +225,8 @@ export class MssqlConnector implements Connector {
       await pool.close().catch(() => undefined);
       throw error;
     }
+    this.healthy = true;
+    this.startHealthChecks(pool, healthCheckIntervalMs);
     // Not awaited: the connector is ready as soon as it is connected
     this.loadSchemaOnce().catch((error) => {
       if (generation === this.generation) logger.error({ info: 'MSSQL schema load failed', error });
@@ -228,6 +235,7 @@ export class MssqlConnector implements Connector {
 
   async close(): Promise<void> {
     this.generation++;
+    clearInterval(this.healthTimer);
     const pool = this.pool;
     this.pool = undefined;
     this.schema = undefined;
@@ -236,7 +244,7 @@ export class MssqlConnector implements Connector {
   }
 
   isReady(): boolean {
-    return this.pool?.connected ?? false;
+    return (this.pool?.connected ?? false) && this.healthy;
   }
 
   /**
@@ -384,6 +392,31 @@ export class MssqlConnector implements Connector {
       // The consumer left the loop early: stop the query instead of letting the server send the rest
       if (!done) request.cancel();
     }
+  }
+
+  /**
+   * Pings the server regularly: the pool only notices that its server went away when a statement needs a connection,
+   * so without traffic it would report itself connected forever.
+   */
+  private startHealthChecks(pool: ConnectionPool, intervalMs = 0): void {
+    clearInterval(this.healthTimer);
+    if (intervalMs <= 0) return;
+    let checking = false;
+    const check = async () => {
+      if (checking || this.pool !== pool) return;
+      checking = true;
+      try {
+        await this.request(undefined, { timeoutMs: Math.min(intervalMs, 5_000) }).query('SELECT 1');
+        this.healthy = true;
+      } catch {
+        // Not logged here: the connector monitor reports the change of status
+        this.healthy = false;
+      } finally {
+        checking = false;
+      }
+    };
+    // Does not keep the process alive
+    this.healthTimer = setInterval(check, intervalMs).unref();
   }
 
   private connectedPool(): ConnectionPool {
@@ -623,6 +656,7 @@ const mssqlEnv = z
     MSSQL_POOL_MAX: envNumber(10, { min: 1 }),
     MSSQL_REQUEST_TIMEOUT_MS: envNumber(15_000, { min: 1 }),
     MSSQL_CONNECTION_TIMEOUT_MS: envNumber(5_000, { min: 1 }),
+    MSSQL_HEALTH_CHECK_INTERVAL_MS: envNumber(10_000, { min: 0 }),
   })
   .superRefine((env, ctx) => {
     if (env.MSSQL_ENABLED && !env.MSSQL_DATABASE) {
@@ -631,6 +665,7 @@ const mssqlEnv = z
   })
   .transform((env): MssqlConfig => ({
     enabled: env.MSSQL_ENABLED,
+    healthCheckIntervalMs: env.MSSQL_HEALTH_CHECK_INTERVAL_MS,
     server: env.MSSQL_SERVER,
     port: env.MSSQL_PORT,
     database: env.MSSQL_DATABASE,

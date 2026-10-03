@@ -679,3 +679,17 @@ describe('lifecycle', () => {
     await connector.close();
   });
 });
+
+// Last: it stops the server
+describe('server loss', () => {
+  it('stops being ready when the server goes away', async () => {
+    const watched = new MssqlConnector({ ...config, healthCheckIntervalMs: 200 });
+    await watched.init();
+    expect(watched.isReady()).toBe(true);
+
+    await container.stop();
+
+    await expect.poll(() => watched.isReady(), { timeout: 20_000 }).toBe(false);
+    await watched.close();
+  });
+});

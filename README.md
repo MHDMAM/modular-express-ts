@@ -154,7 +154,8 @@ All are disabled by default.
   results row by row without holding them in memory, and cancels the query when the loop is left early. A last
   `{ timeoutMs }` argument overrides the request timeout for one statement. The schema is loaded in the background once
   connected: statements that need it wait, the others do not; `refreshSchema()` reloads it after a migration. Parameter
-  values are never logged.
+  values are never logged. The server is pinged every `MSSQL_HEALTH_CHECK_INTERVAL_MS`, so the readiness check notices a
+  server that went away even without traffic.
 - **Kafka** (`#connectors/kafka/kafka`, Confluent's official client): set `KAFKA_ENABLED=true` and `KAFKA_BROKERS`.
   Register topic handlers with `kafka.subscribe(topic, handler)` when your module loads (a consumer runs only if
   handlers exist) and publish with `await kafka.send(topic, { key, value })`. A handler that throws sends the message to
