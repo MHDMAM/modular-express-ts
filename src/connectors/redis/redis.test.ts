@@ -60,7 +60,7 @@ describe('RedisConnector', () => {
   it('connects with the configured URL', async () => {
     const redis = await connected();
 
-    expect(createClient).toHaveBeenCalledWith({ url: 'redis://cache:6379/1' });
+    expect(createClient).toHaveBeenCalledWith({ url: 'redis://cache:6379/1', disableOfflineQueue: true });
     expect(client.connect).toHaveBeenCalled();
     expect(redis.isReady()).toBe(true);
   });
@@ -98,9 +98,12 @@ describe('RedisConnector', () => {
 
     await redis.set('a', 1, 60_000);
     await redis.set('b', 2);
+    await redis.set('c', 3, 0.5);
 
     expect(client.set).toHaveBeenNthCalledWith(1, 'app:a', '1', { expiration: { type: 'PX', value: 60_000 } });
     expect(client.set).toHaveBeenNthCalledWith(2, 'app:b', '2', undefined);
+    // The server rejects fractions of a millisecond
+    expect(client.set).toHaveBeenNthCalledWith(3, 'app:c', '3', { expiration: { type: 'PX', value: 1 } });
   });
 
   it('returns undefined for missing keys and deletes keys', async () => {
@@ -117,6 +120,22 @@ describe('RedisConnector', () => {
     const redis = await connected();
 
     await expect(redis.set('key', undefined)).rejects.toThrow('cannot cache undefined');
+  });
+
+  it('reports a value that is not JSON without showing it', async () => {
+    const redis = await connected();
+    client.store.set('app:counter', 'secret-token');
+
+    const reading = redis.get('counter');
+
+    await expect(reading).rejects.toThrow('the value of "counter" is not JSON');
+    await expect(reading).rejects.not.toThrow('secret-token');
+  });
+
+  it('says so when it is disabled', async () => {
+    const redis = new RedisConnector({ ...baseConfig, enabled: false });
+
+    await expect(redis.get('key')).rejects.toThrow('disabled');
   });
 
   it('exposes the raw client for other commands', async () => {
@@ -150,19 +169,22 @@ describe('RedisConnector', () => {
     const redis = new RedisConnector(baseConfig);
     createClient.mockImplementationOnce(() => {
       client = new FakeRedisClient();
-      client.connect.mockImplementation(() => {
-        client.isOpen = true; // open, retrying, never ready
-        return new Promise(() => undefined);
+      const connecting = client;
+      connecting.connect.mockImplementation(() => {
+        connecting.isOpen = true; // open, retrying, never ready
+        // Like the real client: resolves when it is destroyed while still trying
+        return new Promise((resolve) => connecting.destroy.mockImplementation(() => resolve(connecting)));
       });
       return client;
     });
 
-    void redis.init();
+    const initializing = redis.init();
     await vi.waitFor(() => expect(client.connect).toHaveBeenCalled());
     await redis.close();
 
     expect(client.destroy).toHaveBeenCalled();
     expect(client.close).not.toHaveBeenCalled();
+    await expect(initializing).rejects.toThrow('closed during init');
   });
 
   it('aborts an init still loading the client when closed, so no client is left connecting', async () => {

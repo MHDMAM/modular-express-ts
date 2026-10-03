@@ -166,7 +166,8 @@ All are disabled by default.
   distributed map. Other client options can be added in `hazelcastConfigFromEnv`.
 - **Redis** (`#connectors/redis/redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache`
   with JSON values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for
-  other commands.
+  other commands. Commands fail at once while the server is unreachable (no offline queue), so a cache that is down does
+  not hold requests.
 
 ## Outbound HTTP
 

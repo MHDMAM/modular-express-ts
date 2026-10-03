@@ -43,12 +43,16 @@ export class RedisConnector implements Connector, Cache {
     // Loaded here, not at import time: a disabled connector never loads the client
     const { createClient: create } = await import('redis');
     if (generation !== this.generation) throw new Error('Redis connector was closed during init');
-    const client: RedisClient = create({ url: this.config.url });
+    // Without the offline queue, commands fail at once while the server is unreachable instead of waiting for it:
+    // a cache that is down must not hold requests
+    const client: RedisClient = create({ url: this.config.url, disableOfflineQueue: true });
     // Without an error listener, a dropped connection would crash the process; the client reconnects on its own
     client.on('error', (error) => logger.error({ info: 'Redis client error', error }));
     // Kept before connecting so close() can stop a connection that is still retrying
     this.client = client;
     await client.connect();
+    // connect() resolves, not rejects, when close() destroyed the client while it was still trying
+    if (generation !== this.generation) throw new Error('Redis connector was closed during init');
   }
 
   async close(): Promise<void> {
@@ -67,18 +71,26 @@ export class RedisConnector implements Connector, Cache {
 
   /** The underlying node-redis client. Keys used here are not prefixed. */
   get raw(): RedisClient {
+    if (!this.config.enabled) throw new Error('Redis connector is disabled (set REDIS_ENABLED=true)');
     if (!this.client) throw new Error('Redis connector is not ready');
     return this.client;
   }
 
   async get<T>(key: string): Promise<T | undefined> {
     const value = await this.raw.get(this.key(key));
-    return value === null ? undefined : (JSON.parse(value.toString()) as T);
+    if (value === null) return undefined;
+    try {
+      return JSON.parse(value.toString()) as T;
+    } catch {
+      // Written by something else (e.g. through `raw`); the value itself is not reported
+      throw new Error(`Redis: the value of "${key}" is not JSON`);
+    }
   }
 
   async set<T>(key: string, value: T, ttlMs = 0): Promise<void> {
     if (value === undefined) throw new TypeError('Redis: cannot cache undefined');
-    const options = ttlMs > 0 ? { expiration: { type: 'PX' as const, value: ttlMs } } : undefined;
+    // The server only takes whole milliseconds
+    const options = ttlMs > 0 ? { expiration: { type: 'PX' as const, value: Math.ceil(ttlMs) } } : undefined;
     await this.raw.set(this.key(key), JSON.stringify(value), options);
   }
 
