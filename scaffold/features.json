@@ -46,8 +46,9 @@
       "label": "Kafka",
       "hint": "producer, topic handlers, dead-letter topic (Confluent's official client)",
       "default": false,
-      "files": ["src/connectors/kafka"],
+      "files": ["src/connectors/kafka", "test/integration/kafka.integration.ts"],
       "dependencies": ["@confluentinc/kafka-javascript"],
+      "devDependencies": ["@testcontainers/kafka"],
       "edits": [
         { "file": "src/connectors/index.ts", "removeLine": "import kafka from './kafka/kafka.js';" },
         {
@@ -101,7 +102,7 @@
   "whenNoneKept": [
     { "features": ["hazelcast", "redis"], "files": ["src/connectors/cache.ts"] },
     {
-      "features": ["mssql", "redis"],
+      "features": ["mssql", "kafka", "redis"],
       "files": ["test/integration", "vitest.integration.config.ts"],
       "edits": [
         {
