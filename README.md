@@ -145,10 +145,11 @@ All are disabled by default.
 
 - **MSSQL** (`#connectors/mssql/mssql`): set `MSSQL_ENABLED=true` and `MSSQL_DATABASE`.
   `executeQuery<Row>(query, inputs, tables)` runs parameterised queries (`@name`); inputs named after a column of
-  `tables` (tables or views, `name` or `schema.name`) are declared exactly like that column (length, precision, scale),
-  and a value too long for its column is rejected. `executeSP(procedure, inputs, outputs)` runs stored procedures,
-  typing the parameters from the procedure's definition. `{ datatype, typeLength, scale, value }` sets a type
-  explicitly; other inputs are typed by the driver. `transaction(async (tx) => { ... })` commits when the callback
+  `tables` (tables or views, `schema.name`, or `name` where SQL Server finds it without a schema) are declared exactly
+  like that column (length, precision, scale), and a value too long for its column is rejected.
+  `executeSP(procedure, inputs, outputs)` runs stored procedures, typing the parameters from the procedure's definition.
+  `{ datatype, typeLength, scale, value }` sets a type explicitly; other inputs are typed by the driver (a `Table` built
+  with the driver is sent as a table-valued parameter). `transaction(async (tx) => { ... })` commits when the callback
   resolves and rolls back when it throws. `for await (const row of streamQuery<Row>(query, inputs, tables))` reads large
   results row by row without holding them in memory, and cancels the query when the loop is left early. A last
   `{ timeoutMs }` argument overrides the request timeout for one statement. The schema is loaded in the background once
