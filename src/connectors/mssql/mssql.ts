@@ -192,7 +192,7 @@ export class MssqlConnector implements Connector {
    * views, `name` or `schema.name`) are sent with that column's declared type, and rejected when too long for it;
    * `TypedValue` inputs use their explicit type; anything else lets the driver infer the type.
    */
-  async executeQuery<T = any>(
+  async executeQuery<T = unknown>(
     query: string,
     inputs: Record<string, unknown> = {},
     tables: string[] = [],
@@ -207,7 +207,7 @@ export class MssqlConnector implements Connector {
    * parameter with its initial value (usually `undefined`). For a procedure that is not in this database's schema,
    * inputs are typed by the driver and outputs must be `TypedValue`s.
    */
-  async executeSP<T = any>(
+  async executeSP<T = unknown>(
     procedure: string,
     inputs: Record<string, unknown> = {},
     outputs: Record<string, unknown> = {},
