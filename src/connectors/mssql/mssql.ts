@@ -128,8 +128,10 @@ export class MssqlConnector implements Connector {
   readonly name = 'mssql';
   private driver?: typeof import('mssql');
   private pool?: ConnectionPool;
-  /** Started by init() and awaited by the statements that need it; cleared when the load fails, so it is retried. */
-  private schema?: Promise<Schema>;
+  /** The last schema loaded; kept in use while a refresh is running. */
+  private schema?: Schema;
+  /** The load in progress, shared by everything waiting for it. */
+  private schemaLoad?: Promise<Schema>;
   /** The driver's type factories (`sql.TYPES`) by lowercase name: `sys.types` names are lowercase. */
   private types = new Map<string, TypeFactory>();
   /** The driver's length for `(MAX)` types. */
@@ -170,7 +172,7 @@ export class MssqlConnector implements Connector {
       throw error;
     }
     // Not awaited: the connector is ready as soon as it is connected
-    this.loadedSchema().catch((error) => {
+    this.loadSchemaOnce().catch((error) => {
       if (generation === this.generation) logger.error({ info: 'MSSQL schema load failed', error });
     });
   }
@@ -180,6 +182,7 @@ export class MssqlConnector implements Connector {
     const pool = this.pool;
     this.pool = undefined;
     this.schema = undefined;
+    this.schemaLoad = undefined;
     await pool?.close();
   }
 
@@ -231,6 +234,14 @@ export class MssqlConnector implements Connector {
     options: StatementOptions = {},
   ): AsyncGenerator<T, void, undefined> {
     return this.stream<T>(undefined, query, inputs, tables, options);
+  }
+
+  /**
+   * Reloads the schema, e.g. after a migration changed a table or a procedure. The previous schema stays in use until
+   * the new one is loaded; a load already in progress is awaited instead of starting another.
+   */
+  async refreshSchema(): Promise<void> {
+    await this.loadSchemaOnce();
   }
 
   /**
@@ -431,15 +442,25 @@ export class MssqlConnector implements Connector {
     return catalog.objects.get(keys[0] ?? key);
   }
 
-  private loadedSchema(): Promise<Schema> {
-    if (!this.schema) {
-      const load: Promise<Schema> = this.loadSchema().catch((error) => {
-        if (this.schema === load) this.schema = undefined;
-        throw error;
-      });
-      this.schema = load;
+  /** The schema: loaded by init() in the background, or now when that load failed or has not finished. */
+  private async loadedSchema(): Promise<Schema> {
+    return this.schema ?? this.loadSchemaOnce();
+  }
+
+  private loadSchemaOnce(): Promise<Schema> {
+    if (!this.schemaLoad) {
+      // Ignored when close() or a newer init() replaced it meanwhile
+      const load: Promise<Schema> = this.loadSchema()
+        .then((schema) => {
+          if (this.schemaLoad === load) this.schema = schema;
+          return schema;
+        })
+        .finally(() => {
+          if (this.schemaLoad === load) this.schemaLoad = undefined;
+        });
+      this.schemaLoad = load;
     }
-    return this.schema;
+    return this.schemaLoad;
   }
 
   private async loadSchema(): Promise<Schema> {

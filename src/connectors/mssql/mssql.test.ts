@@ -532,6 +532,51 @@ describe('MssqlConnector', () => {
     error.mockRestore();
   });
 
+  it('refreshes the schema once for concurrent calls, keeping the previous one in use meanwhile', async () => {
+    const mssql = await connected();
+    let loaded!: () => void;
+    const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
+      const slow = new FakeRequest();
+      slow.query.mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => (loaded = resolve));
+        // The table changed: email is now varchar(200)
+        return { recordset: [column('dbo.users', 'email', 'varchar', 200)], rowsAffected: [1] };
+      });
+      return slow;
+    });
+
+    const refreshes = [mssql.refreshSchema(), mssql.refreshSchema()];
+    await vi.waitFor(() => expect(loaded).toBeDefined(), { interval: 1 });
+    await mssql.executeQuery('SELECT @email', { email: 'a@b.c' }, ['users']);
+    expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
+
+    loaded();
+    await Promise.all(refreshes);
+    // Two queries for the initial load, one statement, two queries for the single refresh
+    expect(FakePool.last.requests).toHaveLength(5);
+
+    await mssql.executeQuery('SELECT @email', { email: 'a@b.c' }, ['users']);
+    expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [200] }, 'a@b.c']]);
+    request.mockRestore();
+  });
+
+  it('keeps the previous schema when a refresh fails', async () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const mssql = await connected();
+    const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
+      const failing = new FakeRequest();
+      failing.query.mockRejectedValueOnce(new Error('no permission'));
+      return failing;
+    });
+
+    await expect(mssql.refreshSchema()).rejects.toThrow('no permission');
+
+    await mssql.executeQuery('SELECT @email', { email: 'a@b.c' }, ['users']);
+    expect(lastRequest().inputs).toEqual([['email', { type: 'VarChar', args: [100] }, 'a@b.c']]);
+    request.mockRestore();
+    error.mockRestore();
+  });
+
   it('aborts an init that is still connecting when closed', async () => {
     const mssql = new MssqlConnector(baseConfig);
     let connected!: () => void;
