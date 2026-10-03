@@ -83,8 +83,9 @@
       "label": "Redis",
       "hint": "Redis/Valkey cache (redis)",
       "default": false,
-      "files": ["src/connectors/redis"],
+      "files": ["src/connectors/redis", "test/integration/redis.integration.ts"],
       "dependencies": ["redis"],
+      "devDependencies": ["@testcontainers/redis", "@testcontainers/valkey"],
       "edits": [
         { "file": "src/connectors/index.ts", "removeLine": "import redis from './redis/redis.js';" },
         {
@@ -100,7 +101,7 @@
   "whenNoneKept": [
     { "features": ["hazelcast", "redis"], "files": ["src/connectors/cache.ts"] },
     {
-      "features": ["mssql"],
+      "features": ["mssql", "redis"],
       "files": ["test/integration", "vitest.integration.config.ts"],
       "edits": [
         {
