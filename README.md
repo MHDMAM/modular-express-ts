@@ -222,17 +222,20 @@ The settings are environment variables in every environment (see Configuration).
 complete them for your infrastructure.
 
 - **Docker** (`Dockerfile`, `.dockerignore`): `docker build -t my-app .` compiles the app and builds an image with the
-  production dependencies and `dist/` only, running as the unprivileged `node` user with `NODE_ENV=production` and
-  `LOG_OUTPUT=stdout`. Pass the settings when starting it, e.g. `docker run -p 3000:3000 --env-file .env my-app`.
-  `.dockerignore` lets only the files the build needs reach Docker, so `.env` and other local files are never in the
-  image. `docker stop` shuts the app down gracefully.
+  production dependencies and `dist/` only, on a [distroless](https://github.com/GoogleContainerTools/distroless) base:
+  Node.js without a shell or npm, running as an unprivileged user with `NODE_ENV=production` and `LOG_OUTPUT=stdout`.
+  Pass the settings when starting it, e.g. `docker run -p 3000:3000 --env-file .env my-app`. To keep log files, set
+  `LOG_OUTPUT=file` and mount a volume on `/app/logs`. `.dockerignore` lets only the files the build needs reach Docker,
+  so `.env` and other local files are never in the image. `docker stop` shuts the app down gracefully. There is no shell
+  to open in the container; to debug, build from the `:debug-nonroot` tag of the base image, which has one.
 - **pm2** (`ecosystem.config.cjs`), for a Linux or Windows host: after `npm ci && npm run build`, start the app with
   `pm2 start ecosystem.config.cjs`. It runs `dist/server.js` with `NODE_ENV=production` and reads `.env` from the
   project folder when there is one. The app writes its own daily log files to `LOG_DIR`, so pm2's log files only hold
   what is printed before the logger starts (e.g. an invalid setting). `pm2 stop` and `pm2 reload` shut the app down
   gracefully, on Windows too (pm2 sends a message there instead of a signal). Set `instances` and `exec_mode: 'cluster'`
   to use several processes.
-- **AWS ECS** (`ecs/task-definition.example.json`): a sample Fargate task definition for an image of this app. The
+- **AWS ECS** (`ecs/task-definition.example.json`): a sample Fargate task definition for an image of this app. Its
+  health check calls `/nodejs/bin/node`, where the distroless image has Node.js; use `node` with another base image. The
   settings go under `environment`, named like the variables in `.env.example`. Passwords and other secrets go under
   `secrets` as `{ "name": "<VARIABLE>", "valueFrom": "<Secrets Manager or Parameter Store ARN>" }`, never under
   `environment`. Logs go to stdout and from there to CloudWatch (`awslogs`). Replace the `<...>` placeholders, then
