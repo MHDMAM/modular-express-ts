@@ -10,6 +10,7 @@ import type {
 import { z } from 'zod';
 
 import { envBoolean, envNumber, envOptional, envString, parseEnv } from '#config';
+import { HealthCheck } from '#core/health-check';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 
@@ -187,9 +188,11 @@ export class MssqlConnector implements Connector {
   private types = new Map<string, TypeFactory>();
   /** The driver's length for `(MAX)` types. */
   private max = 0;
-  /** False once a health check failed, until one succeeds again. */
-  private healthy = true;
-  private healthTimer?: NodeJS.Timeout;
+  /**
+   * Pings the server: the pool only notices that its server went away when a statement needs a connection, so without
+   * traffic it would report itself connected forever.
+   */
+  private readonly health = new HealthCheck((timeoutMs) => this.request(undefined, { timeoutMs }).query('SELECT 1'));
   /** Incremented by init() and close(), so an init() still loading the client knows it was closed meanwhile. */
   private generation = 0;
 
@@ -225,8 +228,7 @@ export class MssqlConnector implements Connector {
       await pool.close().catch(() => undefined);
       throw error;
     }
-    this.healthy = true;
-    this.startHealthChecks(pool, healthCheckIntervalMs);
+    this.health.start(healthCheckIntervalMs);
     // Not awaited: the connector is ready as soon as it is connected
     this.loadSchemaOnce().catch((error) => {
       if (generation === this.generation) logger.error({ info: 'MSSQL schema load failed', error });
@@ -235,7 +237,7 @@ export class MssqlConnector implements Connector {
 
   async close(): Promise<void> {
     this.generation++;
-    clearInterval(this.healthTimer);
+    this.health.stop();
     const pool = this.pool;
     this.pool = undefined;
     this.schema = undefined;
@@ -244,7 +246,7 @@ export class MssqlConnector implements Connector {
   }
 
   isReady(): boolean {
-    return (this.pool?.connected ?? false) && this.healthy;
+    return (this.pool?.connected ?? false) && this.health.healthy;
   }
 
   /**
@@ -392,31 +394,6 @@ export class MssqlConnector implements Connector {
       // The consumer left the loop early: stop the query instead of letting the server send the rest
       if (!done) request.cancel();
     }
-  }
-
-  /**
-   * Pings the server regularly: the pool only notices that its server went away when a statement needs a connection,
-   * so without traffic it would report itself connected forever.
-   */
-  private startHealthChecks(pool: ConnectionPool, intervalMs = 0): void {
-    clearInterval(this.healthTimer);
-    if (intervalMs <= 0) return;
-    let checking = false;
-    const check = async () => {
-      if (checking || this.pool !== pool) return;
-      checking = true;
-      try {
-        await this.request(undefined, { timeoutMs: Math.min(intervalMs, 5_000) }).query('SELECT 1');
-        this.healthy = true;
-      } catch {
-        // Not logged here: the connector monitor reports the change of status
-        this.healthy = false;
-      } finally {
-        checking = false;
-      }
-    };
-    // Does not keep the process alive
-    this.healthTimer = setInterval(check, intervalMs).unref();
   }
 
   private connectedPool(): ConnectionPool {

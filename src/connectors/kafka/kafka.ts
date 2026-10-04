@@ -2,6 +2,7 @@ import type { KafkaJS } from '@confluentinc/kafka-javascript';
 import { z } from 'zod';
 
 import config, { envBoolean, envList, envNumber, envOptional, envString, parseEnv } from '#config';
+import { HealthCheck } from '#core/health-check';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 import { contextFromHeaders, contextHeaders, runWithContext } from '#core/request-context';
@@ -91,9 +92,11 @@ export class KafkaConnector implements Connector {
   private admin?: KafkaJS.Admin;
   private readonly handlers = new Map<string, MessageHandler>();
   private ready = false;
-  /** False once a health check failed, until one succeeds again. */
-  private healthy = true;
-  private healthTimer?: NodeJS.Timeout;
+  /**
+   * Asks the brokers for metadata: the client reconnects on its own and reports nothing when its brokers go away, so
+   * without this the connector would look ready forever.
+   */
+  private readonly health = new HealthCheck(async (timeout) => void (await this.admin?.listTopics({ timeout })));
   /** Incremented by init() and close(), so an init() still connecting knows it was closed meanwhile. */
   private generation = 0;
 
@@ -142,9 +145,8 @@ export class KafkaConnector implements Connector {
       this.admin = this.kafka.admin();
       await this.admin.connect();
       closed();
-      this.startHealthChecks(this.admin, this.config.healthCheckIntervalMs);
     }
-    this.healthy = true;
+    this.health.start(this.config.healthCheckIntervalMs);
     this.ready = true;
   }
 
@@ -164,7 +166,7 @@ export class KafkaConnector implements Connector {
   async close(): Promise<void> {
     this.generation++;
     this.ready = false;
-    clearInterval(this.healthTimer);
+    this.health.stop();
     // The consumer first, so no handler is left running without a producer for its dead letters
     const clients = { consumer: this.consumer, admin: this.admin, producer: this.producer };
     this.consumer = this.admin = this.producer = this.kafka = undefined;
@@ -175,31 +177,7 @@ export class KafkaConnector implements Connector {
   }
 
   isReady(): boolean {
-    return this.ready && this.healthy;
-  }
-
-  /**
-   * Asks the brokers for metadata regularly: the client reconnects on its own and reports nothing when its brokers go
-   * away, so without this the connector would look ready forever.
-   */
-  private startHealthChecks(admin: KafkaJS.Admin, intervalMs: number): void {
-    clearInterval(this.healthTimer);
-    let checking = false;
-    const check = async () => {
-      if (checking || this.admin !== admin) return;
-      checking = true;
-      try {
-        await admin.listTopics({ timeout: Math.min(intervalMs, 5_000) });
-        this.healthy = true;
-      } catch {
-        // Not logged here: the connector monitor reports the change of status
-        this.healthy = false;
-      } finally {
-        checking = false;
-      }
-    };
-    // Does not keep the process alive
-    this.healthTimer = setInterval(check, intervalMs).unref();
+    return this.ready && this.health.healthy;
   }
 
   private async dispatch({ topic, partition, message }: KafkaJS.EachMessagePayload): Promise<void> {
