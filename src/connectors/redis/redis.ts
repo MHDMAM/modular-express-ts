@@ -1,7 +1,7 @@
 import type { createClient } from 'redis';
 import { z } from 'zod';
 
-import { envBoolean, envNumber, envString, parseEnv } from '#config';
+import { envBoolean, envNumber, envString, loadOrExit, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 
@@ -145,4 +145,4 @@ export function redisConfigFromEnv(env: Record<string, string | undefined> = pro
   return parseEnv(redisEnv, env);
 }
 
-export default new RedisConnector(redisConfigFromEnv());
+export default new RedisConnector(loadOrExit(() => redisConfigFromEnv()));

@@ -1,3 +1,9 @@
-import { applyConfigFile } from './config-file.js';
+import { applyConfigFile, ConfigFileError } from './config-file.js';
+import { failStartup } from './fail-startup.js';
 
-applyConfigFile();
+try {
+  applyConfigFile();
+} catch (error) {
+  if (error instanceof ConfigFileError) failStartup(error.message);
+  throw error;
+}

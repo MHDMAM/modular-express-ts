@@ -1,7 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import { ConfigError, envBoolean, envList, envNumber, envOptional, envString, loadConfig, parseEnv } from '#config';
+import {
+  ConfigError,
+  envBoolean,
+  envList,
+  envNumber,
+  envOptional,
+  envString,
+  loadConfig,
+  loadOrExit,
+  parseEnv,
+} from '#config';
+import { failStartup } from '#core/fail-startup';
+
+vi.mock('#core/fail-startup', () => ({ failStartup: vi.fn() }));
+afterEach(() => vi.mocked(failStartup).mockClear());
 
 const schema = z.object({
   FLAG: envBoolean(false),
@@ -118,5 +132,29 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ NODE_ENV: 'staging' })).toThrow('NODE_ENV');
     expect(() => loadConfig({ PORT: '70000' })).toThrow('PORT');
     expect(() => loadConfig({ SSL_MIN_VERSION: 'TLSv1.0' })).toThrow('SSL_MIN_VERSION');
+  });
+});
+
+describe('loadOrExit', () => {
+  it('returns what the loader returns', () => {
+    expect(loadOrExit(() => 42)).toBe(42);
+    expect(failStartup).not.toHaveBeenCalled();
+  });
+
+  it('stops the process with the message of a ConfigError', () => {
+    // The real failStartup exits; the mock returns, so the error is thrown on
+    expect(() => loadOrExit(() => parseEnv(z.object({ PORT: envNumber(1) }), { PORT: 'abc' }))).toThrow(ConfigError);
+
+    expect(failStartup).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(failStartup).mock.calls[0][0]).toMatch(/^Invalid environment variables:\n {2}- PORT: /);
+  });
+
+  it('leaves other errors alone', () => {
+    expect(() =>
+      loadOrExit(() => {
+        throw new TypeError('a bug');
+      }),
+    ).toThrow('a bug');
+    expect(failStartup).not.toHaveBeenCalled();
   });
 });

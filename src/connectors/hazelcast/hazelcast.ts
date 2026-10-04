@@ -1,7 +1,7 @@
 import type { Client, ClientConfig, ILogger, IMap, LifecycleState, ReconnectMode } from 'hazelcast-client';
 import { z } from 'zod';
 
-import { envBoolean, envList, envString, parseEnv } from '#config';
+import { envBoolean, envList, envString, loadOrExit, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 
@@ -196,4 +196,4 @@ export function hazelcastConfigFromEnv(env: Record<string, string | undefined> =
   return parseEnv(hazelcastEnv, env);
 }
 
-export default new HazelcastConnector(hazelcastConfigFromEnv());
+export default new HazelcastConnector(loadOrExit(() => hazelcastConfigFromEnv()));

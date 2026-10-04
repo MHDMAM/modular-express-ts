@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { failStartup } from './core/fail-startup.js';
+
 /**
  * Configuration comes from environment variables only (Twelve-Factor), validated with zod when the app starts.
  * Locally, `npm run dev` / `npm start` load `.env` (see `.env.example`). Each connector declares its own variables
@@ -57,6 +59,19 @@ export function parseEnv<T extends z.ZodType>(schema: T, env: Env = process.env)
   if (result.success) return result.data;
   const issues = result.error.issues.map((issue) => `  - ${issue.path.join('.') || '(env)'}: ${issue.message}`);
   throw new ConfigError(`Invalid environment variables:\n${issues.join('\n')}`);
+}
+
+/**
+ * Runs a configuration loader at startup. A `ConfigError` stops the process with its message alone: it lists what to
+ * fix, and nothing can catch an error thrown while the modules load.
+ */
+export function loadOrExit<T>(load: () => T): T {
+  try {
+    return load();
+  } catch (error) {
+    if (error instanceof ConfigError) failStartup(error.message);
+    throw error;
+  }
 }
 
 function isTimeZone(name: string): boolean {
@@ -137,6 +152,6 @@ export function loadConfig(env: Env = process.env): AppConfig {
 }
 
 /** The application configuration, validated once at startup. */
-const config = loadConfig();
+const config = loadOrExit(() => loadConfig());
 
 export default config;

@@ -1,7 +1,7 @@
 import type { KafkaJS } from '@confluentinc/kafka-javascript';
 import { z } from 'zod';
 
-import config, { envBoolean, envList, envNumber, envOptional, envString, parseEnv } from '#config';
+import config, { envBoolean, envList, envNumber, envOptional, envString, loadOrExit, parseEnv } from '#config';
 import { HealthCheck } from '#core/health-check';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
@@ -273,4 +273,4 @@ export function kafkaConfigFromEnv(env: Record<string, string | undefined> = pro
   return parseEnv(kafkaEnv, env);
 }
 
-export default new KafkaConnector(kafkaConfigFromEnv());
+export default new KafkaConnector(loadOrExit(() => kafkaConfigFromEnv()));

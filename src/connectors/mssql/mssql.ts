@@ -9,7 +9,7 @@ import type {
 } from 'mssql';
 import { z } from 'zod';
 
-import { envBoolean, envNumber, envOptional, envString, parseEnv } from '#config';
+import { envBoolean, envNumber, envOptional, envString, loadOrExit, parseEnv } from '#config';
 import { HealthCheck } from '#core/health-check';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
@@ -663,4 +663,4 @@ export function mssqlConfigFromEnv(env: Record<string, string | undefined> = pro
   return parseEnv(mssqlEnv, env);
 }
 
-export default new MssqlConnector(mssqlConfigFromEnv());
+export default new MssqlConnector(loadOrExit(() => mssqlConfigFromEnv()));
