@@ -1,0 +1,7 @@
+# Only what the image build needs is sent to Docker, so local files (settings, logs, node_modules) never reach it
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.build.json
+!src

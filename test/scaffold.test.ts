@@ -8,6 +8,7 @@ import { copyTemplate, removeTemplateCopies, root } from './support/template-cop
 const manifest = readManifest(root);
 const ids = manifest.features.map((feature) => feature.id);
 const connectors = ['hazelcast', 'kafka', 'mssql', 'redis'];
+const deployment = ['docker'];
 
 /**
  * The feature selections to try. Features sharing a `whenNoneKept` rule form a group; every subset of each group is
@@ -140,6 +141,7 @@ describe('scaffold', () => {
     const readme = read(dir, 'README.md');
     expect(readme.startsWith('# @acme/my-app\n\nCreated with [modular-express-ts]')).toBe(true);
     expect(readme.includes('## Optional Connectors')).toBe(registered.length > 0);
+    expect(readme.includes('## Deployment')).toBe(deployment.some((id) => keep.includes(id)));
     expect(readme).not.toMatch(/## (License|Creating a Project)\n/);
     expect(readme).not.toContain('\n\n\n');
     expect(read(dir, '.env.example')).not.toContain('\n\n\n');

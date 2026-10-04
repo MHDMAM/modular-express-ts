@@ -13,9 +13,9 @@ node scaffold/scaffold.ts --name my-app --features http,redis   # or --features 
 npm install
 ```
 
-Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file` (see `scaffold/features.json`). The others are
-removed with their code, tests, dependencies, environment variables and documentation; the script also renames the
-project and then removes itself.
+Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file`, `docker` (see `scaffold/features.json`). The
+others are removed with their code, tests, dependencies, environment variables and documentation; the script also
+renames the project and then removes itself.
 
 ## Quick Start
 
@@ -215,6 +215,17 @@ if (!res.success) return next(HttpException.internal());
 
 `HttpClient` (`#http/http-client`) provides the same retry and circuit breaker options without the service conventions.
 Both are built on [cockatiel](https://github.com/connor4312/cockatiel) and axios.
+
+## Deployment
+
+The settings are environment variables in every environment (see Configuration). The files below are starting points:
+complete them for your infrastructure.
+
+- **Docker** (`Dockerfile`, `.dockerignore`): `docker build -t my-app .` compiles the app and builds an image with the
+  production dependencies and `dist/` only, running as the unprivileged `node` user with `NODE_ENV=production` and
+  `LOG_OUTPUT=stdout`. Pass the settings when starting it, e.g. `docker run -p 3000:3000 --env-file .env my-app`.
+  `.dockerignore` lets only the files the build needs reach Docker, so `.env` and other local files are never in the
+  image. `docker stop` shuts the app down gracefully.
 
 ## Maintenance
 

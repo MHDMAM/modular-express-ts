@@ -27,6 +27,7 @@ jobs:
       - run: npm test
       - run: npm run test:scaffold
       - run: npm run build
+      - run: docker build -t app .
 
   integration:
     runs-on: ubuntu-latest

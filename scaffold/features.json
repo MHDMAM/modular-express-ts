@@ -122,6 +122,17 @@
         },
         { "file": "README.md", "removeBullet": "- **`config.json`**" }
       ]
+    },
+    {
+      "id": "docker",
+      "label": "Docker",
+      "hint": "Dockerfile and .dockerignore: a production image running the compiled app",
+      "default": false,
+      "files": ["Dockerfile", ".dockerignore"],
+      "edits": [
+        { "file": "README.md", "removeBullet": "- **Docker**" },
+        { "file": ".github/workflows/ci.yml", "removeLine": "      - run: docker build -t app ." }
+      ]
     }
   ],
   "whenNoneKept": [
@@ -144,6 +155,10 @@
     {
       "features": ["mssql", "kafka", "hazelcast", "redis"],
       "edits": [{ "file": "README.md", "removeSection": "Optional Connectors" }]
+    },
+    {
+      "features": ["docker"],
+      "edits": [{ "file": "README.md", "removeSection": "Deployment" }]
     }
   ],
   "project": {
