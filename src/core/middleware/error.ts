@@ -1,5 +1,4 @@
 import { NextFunction, Request, Response } from 'express';
-import _ from 'lodash';
 
 import { HttpException } from '#core/errors';
 import logger from '#core/logger';
@@ -44,8 +43,7 @@ const errorMiddleware = (err: Error, req: Request, res: Response, next: NextFunc
     error: withoutRequestBody(err),
   });
 
-  const response = _.assign({ status: error.status, message: error.message }, error.data);
-  response._metadata = metadata;
+  const response = { status: error.status, message: error.message, ...error.data, _metadata: metadata };
   return res.status(error.httpCode).send(response);
 };
 

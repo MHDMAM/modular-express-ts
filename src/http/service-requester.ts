@@ -1,5 +1,3 @@
-import _ from 'lodash';
-
 import config from '#config';
 import logger from '#core/logger';
 import { contextHeaders } from '#core/request-context';
@@ -88,11 +86,8 @@ export default class ServiceRequester {
     });
 
     if (response.success) {
-      return {
-        success: true,
-        data: response.data?.data as T,
-        headers: _.omit(response.data?.headers, ['date', 'connection']) as H,
-      };
+      const { date: _date, connection: _connection, ...headers } = response.data?.headers ?? {};
+      return { success: true, data: response.data?.data as T, headers: headers as H };
     }
     const reason: HttpResponse = response.reason;
     return {
