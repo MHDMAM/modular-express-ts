@@ -58,7 +58,7 @@ describe('loadConfig', () => {
       baseUrl: '/api/v1',
       routesGlob: 'modules/**/*.routes.{js,ts}',
       statusPrefix: 'APP',
-      logDir: 'logs',
+      log: { dir: 'logs', level: 'debug', output: 'both', timeZone: undefined, retentionDays: 0 },
       shutdownTimeoutMs: 10_000,
       connectors: { initTimeoutMs: 30_000, closeTimeoutMs: 5_000, monitorIntervalMs: 10_000 },
       ssl: { enabled: false, keyPath: 'ssl_cert/server.key', certPath: 'ssl_cert/server.cer', minVersion: 'TLSv1.3' },
@@ -84,7 +84,37 @@ describe('loadConfig', () => {
     });
   });
 
+  it('logs to daily files at info level outside development, unless set otherwise', () => {
+    expect(loadConfig({ NODE_ENV: 'production' }).log).toMatchObject({ level: 'info', output: 'file' });
+    expect(loadConfig({ NODE_ENV: 'test' }).log).toMatchObject({ level: 'info', output: 'file' });
+    expect(
+      loadConfig({
+        NODE_ENV: 'production',
+        LOG_DIR: '/var/log/app',
+        LOG_LEVEL: 'warn',
+        LOG_OUTPUT: 'stdout',
+        LOG_TIMEZONE: 'Asia/Kuala_Lumpur',
+        LOG_RETENTION_DAYS: '30',
+      }).log,
+    ).toEqual({
+      dir: '/var/log/app',
+      level: 'warn',
+      output: 'stdout',
+      timeZone: 'Asia/Kuala_Lumpur',
+      retentionDays: 30,
+    });
+    // Empty, as in a copied .env.example: the defaults
+    expect(loadConfig({ LOG_LEVEL: '', LOG_OUTPUT: '', LOG_TIMEZONE: '' }).log).toMatchObject({
+      level: 'debug',
+      output: 'both',
+      timeZone: undefined,
+    });
+  });
+
   it('rejects invalid values', () => {
+    expect(() => loadConfig({ LOG_TIMEZONE: 'Mars/Olympus' })).toThrow('LOG_TIMEZONE');
+    expect(() => loadConfig({ LOG_LEVEL: 'verbose' })).toThrow('LOG_LEVEL');
+    expect(() => loadConfig({ LOG_OUTPUT: 'console' })).toThrow('LOG_OUTPUT');
     expect(() => loadConfig({ NODE_ENV: 'staging' })).toThrow('NODE_ENV');
     expect(() => loadConfig({ PORT: '70000' })).toThrow('PORT');
     expect(() => loadConfig({ SSL_MIN_VERSION: 'TLSv1.0' })).toThrow('SSL_MIN_VERSION');

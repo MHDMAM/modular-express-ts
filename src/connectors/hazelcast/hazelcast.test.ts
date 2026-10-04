@@ -164,7 +164,7 @@ describe('HazelcastConnector', () => {
   });
 
   it("routes the client's own logs through the application logger, unless a logger is configured", async () => {
-    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     await connected();
 
     fake.clientConfig.customLogger.warn('ConnectionManager', 'connection lost');

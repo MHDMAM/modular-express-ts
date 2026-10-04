@@ -1,10 +1,8 @@
-import { Writable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import winston from 'winston';
 
 import { formatStatus } from '#core/errors';
-import logger from '#core/logger';
+import logger, { tapLogs } from '#core/logger';
 import {
   contextFromHeaders,
   contextHeaders,
@@ -23,16 +21,8 @@ const TRACEPARENT = `00-${TRACE_ID}-00f067aa0ba902b7-01`;
 /** Captures what the logger writes, parsed from its JSON lines. */
 function captureLogs() {
   const lines: Record<string, any>[] = [];
-  const transport = new winston.transports.Stream({
-    stream: new Writable({
-      write(chunk, _encoding, callback) {
-        lines.push(JSON.parse(chunk.toString()));
-        callback();
-      },
-    }),
-  });
-  logger.add(transport);
-  return { lines, stop: () => logger.remove(transport) };
+  const stop = tapLogs((line) => lines.push(JSON.parse(line)));
+  return { lines, stop };
 }
 
 describe('traceparent', () => {
@@ -146,12 +136,32 @@ describe('logger', () => {
     expect(logs.lines[0]).not.toHaveProperty('requestId');
   });
 
-  it('serializes errors with message and stack, and bigints as strings', () => {
-    logger.error({ info: 'failed', error: new Error('boom'), big: 10n });
+  it('serializes errors with type, message, stack and their own properties, and bigints as numbers', () => {
+    const error = Object.assign(new TypeError('boom'), { code: 'E_BOOM' });
+    logger.error({ info: 'failed', error, big: 10n });
 
-    expect(logs.lines[0].error.message).toBe('boom');
+    expect(logs.lines[0].error).toMatchObject({ type: 'TypeError', message: 'boom', code: 'E_BOOM' });
     expect(logs.lines[0].error.stack).toContain('boom');
-    expect(logs.lines[0].big).toBe('10');
+    expect(logs.lines[0].big).toBe(10);
+  });
+
+  it('writes the time with its offset, and the level by name', () => {
+    logger.warn('careful');
+
+    expect(logs.lines[0].level).toBe('warn');
+    expect(logs.lines[0].time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
+    expect(Math.abs(new Date(logs.lines[0].time).getTime() - Date.now())).toBeLessThan(5_000);
+    expect(logs.lines[0]).not.toHaveProperty('pid');
+  });
+
+  it('does not add logged fields to the request context', () => {
+    runWithContext({ requestId: 'req-1', traceId: TRACE_ID }, () => {
+      logger.info({ info: 'first', orderId: 7 });
+      logger.info({ info: 'second' });
+      expect(getRequestContext()).toEqual({ requestId: 'req-1', traceId: TRACE_ID });
+    });
+
+    expect(logs.lines[1]).not.toHaveProperty('orderId');
   });
 });
 

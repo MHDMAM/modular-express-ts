@@ -165,7 +165,7 @@ describe('KafkaConnector', () => {
   });
 
   it('disconnects the other clients when one fails to disconnect', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const kafka = new KafkaConnector(baseConfig);
     kafka.subscribe('orders', vi.fn());
     await kafka.init();

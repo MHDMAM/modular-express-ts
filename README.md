@@ -50,7 +50,9 @@ src/
   config.ts              # core configuration from environment variables (zod)
   core/                  # always present: framework plumbing
     errors.ts            # HttpException and status codes
-    logger.ts            # winston, JSON lines with the request context
+    logger.ts            # pino, JSON lines with the request context
+    log-file.ts          # daily log files and the log time zone
+    health-check.ts      # periodic check used by connectors for readiness
     request-context.ts   # AsyncLocalStorage: requestId, traceId
     lifecycle.ts         # Connector interface, init/close, statuses, monitor
     routes.ts            # route auto-loader
@@ -90,13 +92,25 @@ generated) and a W3C `traceId` (from `traceparent`, or generated). Anything runn
 the call chain, can read it with `getRequestContext()` from `#core/request-context`, without passing ids around.
 
 - Every log line written during the request gets `requestId` and `traceId` automatically. Logs are one JSON object per
-  line: `{ time, level, requestId, traceId, ...fields }`; errors are serialized with their message and stack.
+  line: `{ level, time, requestId, traceId, ...fields }`; errors are serialized with their type, message and stack.
 - The ids follow a request across services: `ServiceRequester` forwards `x-request-id` and `traceparent` downstream.
 - `kafka.send()` adds the same headers to messages, and Kafka handlers run in a context rebuilt from them.
 - Request/response headers and bodies are not logged, as they may carry credentials or personal data.
 - Add request metadata once it is known with `setRequestContext()`, e.g. `setRequestContext({ userRef })` in an auth
   middleware: later logs in that request include it. New fields go in the `RequestContext` interface.
 - Keep the context to request metadata (ids, tenant, user reference); pass business data as normal arguments.
+
+Logs are written with [pino](https://getpino.io) (`import logger from '#core/logger'`):
+
+- By default to one file per day, `LOG_DIR/app-YYYY-MM-DD.log`, with the errors also in `error-YYYY-MM-DD.log`.
+  `LOG_OUTPUT` chooses `file`, `stdout` or `both` (`both` in development). Under Docker, set `LOG_OUTPUT=stdout` so the
+  platform collects the logs, or mount `LOG_DIR` as a volume.
+- Times and the daily files follow the machine's time zone, or `LOG_TIMEZONE` (e.g. `Asia/Kuala_Lumpur`). Times carry
+  their offset: `2026-10-04T08:30:00.123+08:00`.
+- `LOG_LEVEL` is `debug` in development and `info` otherwise. `LOG_RETENTION_DAYS` deletes older daily files (0 keeps
+  them all).
+- Files are written synchronously, so nothing is lost when the process exits, and several processes (e.g. pm2 cluster
+  mode) can append to the same file.
 
 ## Responses & Errors
 

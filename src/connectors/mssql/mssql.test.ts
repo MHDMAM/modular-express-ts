@@ -210,7 +210,7 @@ describe('MssqlConnector', () => {
   });
 
   it('logs pool errors instead of crashing the process', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     await connected();
 
     expect(() => FakePool.last.emit('error', new Error('connection lost'))).not.toThrow();
@@ -503,7 +503,7 @@ describe('MssqlConnector', () => {
   });
 
   it('rethrows and logs a streamed query failing midway', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const mssql = await connected();
     FakeRequest.streamed = [{ id: 1 }, new Error('connection lost')];
 
@@ -535,7 +535,7 @@ describe('MssqlConnector', () => {
   });
 
   it('rethrows failed statements and logs them without parameter values', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const mssql = await connected();
     FakePool.last.request.mockImplementationOnce(() => {
       const request = new FakeRequest();
@@ -631,7 +631,7 @@ describe('MssqlConnector', () => {
   });
 
   it('logs a failed schema load and retries it for the next statement that needs it', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
       const failing = new FakeRequest();
       failing.query.mockRejectedValueOnce(new Error('no permission'));
@@ -679,7 +679,7 @@ describe('MssqlConnector', () => {
   });
 
   it('keeps the previous schema when a refresh fails', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const mssql = await connected();
     const request = vi.spyOn(FakePool.prototype, 'newRequest').mockImplementationOnce(() => {
       const failing = new FakeRequest();

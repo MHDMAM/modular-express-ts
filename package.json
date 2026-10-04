@@ -54,14 +54,12 @@
     "cockatiel": "^4.0.0",
     "compression": "^1.8.2",
     "express": "^5.2.1",
-    "fast-safe-stringify": "^2.1.1",
     "hazelcast-client": "^5.7.0",
     "helmet": "^8.3.0",
     "mssql": "^12.7.2",
+    "pino": "^10.4.0",
     "redis": "^6.2.1",
     "tslib": "^2.8.1",
-    "winston": "^3.19.0",
-    "winston-daily-rotate-file": "^5.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

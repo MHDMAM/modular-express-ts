@@ -59,6 +59,15 @@ export function parseEnv<T extends z.ZodType>(schema: T, env: Env = process.env)
   throw new ConfigError(`Invalid environment variables:\n${issues.join('\n')}`);
 }
 
+function isTimeZone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const coreEnv = z
   .object({
     NODE_ENV: z.preprocess(orDefault('development'), z.enum(['development', 'test', 'production'])),
@@ -69,6 +78,20 @@ const coreEnv = z
     ROUTES_GLOB: envString('modules/**/*.routes.{js,ts}'),
     STATUS_PREFIX: envString('APP'),
     LOG_DIR: envString('logs'),
+    /** Unset: `debug` in development, `info` otherwise. */
+    LOG_LEVEL: z.preprocess(
+      orDefault(undefined),
+      z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).optional(),
+    ),
+    /** Unset: `both` in development, `file` otherwise. */
+    LOG_OUTPUT: z.preprocess(orDefault(undefined), z.enum(['file', 'stdout', 'both']).optional()),
+    /** IANA name (e.g. `Asia/Kuala_Lumpur`) for log times and daily file names; unset: the machine's time zone. */
+    LOG_TIMEZONE: z.preprocess(
+      orDefault(undefined),
+      z.string().refine(isTimeZone, 'is not a known time zone').optional(),
+    ),
+    /** Daily log files older than this many days are deleted; 0 keeps them all. */
+    LOG_RETENTION_DAYS: envNumber(0),
     SHUTDOWN_TIMEOUT_MS: envNumber(10_000),
     CONNECTOR_INIT_TIMEOUT_MS: envNumber(30_000, { min: 1 }),
     CONNECTOR_CLOSE_TIMEOUT_MS: envNumber(5_000, { min: 1 }),
@@ -85,7 +108,13 @@ const coreEnv = z
     baseUrl: env.API_BASE_PATH,
     routesGlob: env.ROUTES_GLOB,
     statusPrefix: env.STATUS_PREFIX,
-    logDir: env.LOG_DIR,
+    log: {
+      dir: env.LOG_DIR,
+      level: env.LOG_LEVEL ?? (env.NODE_ENV === 'development' ? 'debug' : 'info'),
+      output: env.LOG_OUTPUT ?? (env.NODE_ENV === 'development' ? 'both' : 'file'),
+      timeZone: env.LOG_TIMEZONE,
+      retentionDays: env.LOG_RETENTION_DAYS,
+    },
     shutdownTimeoutMs: env.SHUTDOWN_TIMEOUT_MS,
     connectors: {
       initTimeoutMs: env.CONNECTOR_INIT_TIMEOUT_MS,

@@ -82,7 +82,7 @@ describe('RedisConnector', () => {
   });
 
   it('logs client errors instead of crashing the process', async () => {
-    const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     await connected();
 
     expect(() => client.emit('error', new Error('connection lost'))).not.toThrow();
