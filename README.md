@@ -170,8 +170,8 @@ All are disabled by default.
   once meanwhile. Entries expire with a resolution of about a second.
 - **Redis** (`#connectors/redis/redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache`
   with JSON values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for
-  other commands. Commands fail at once while the server is unreachable (no offline queue), so a cache that is down does
-  not hold requests.
+  other commands. Commands fail at once while the server is unreachable (no offline queue), and `Cache` commands fail
+  after `REDIS_COMMAND_TIMEOUT_MS` when it does not answer, so a cache that is down does not hold requests.
 
 ## Outbound HTTP
 

@@ -124,6 +124,23 @@ describe.each(servers)('$name', ({ start }) => {
     await expect(redis.get('text')).rejects.toThrow('the value of "text" is not JSON');
   });
 
+  it('fails a command the server does not answer in time', async () => {
+    const url = container.getConnectionUrl();
+    const impatient = new RedisConnector({ enabled: true, url, keyPrefix: 'app:', commandTimeoutMs: 300 });
+    await impatient.init();
+    await impatient.set('slow', 1);
+
+    // The server stops answering every client for a while, connections stay open
+    await redis.raw.sendCommand(['CLIENT', 'PAUSE', '2000', 'ALL']);
+    const start = Date.now();
+    await expect(impatient.get('slow')).rejects.toThrow('no answer within 300ms');
+    expect(Date.now() - start).toBeLessThan(1_500);
+
+    // Usable again once the server answers
+    await expect.poll(() => impatient.get('slow').catch(() => 'failed'), { timeout: 10_000 }).toBe(1);
+    await impatient.close();
+  });
+
   it('can be closed and initialised again', async () => {
     const again = new RedisConnector({ enabled: true, url: container.getConnectionUrl(), keyPrefix: 'app:' });
     await again.init();

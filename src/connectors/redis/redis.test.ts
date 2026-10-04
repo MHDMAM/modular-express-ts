@@ -65,6 +65,22 @@ describe('RedisConnector', () => {
     expect(redis.isReady()).toBe(true);
   });
 
+  it('fails a cache command the server does not answer in time, when a limit is configured', async () => {
+    const redis = await connected({ ...baseConfig, commandTimeoutMs: 20 });
+    await redis.set('key', 1);
+    expect(await redis.get('key')).toBe(1);
+
+    client.get.mockImplementationOnce(() => new Promise(() => undefined));
+    await expect(redis.get('key')).rejects.toThrow('no answer within 20ms');
+
+    // A command that fails after its limit is not an unhandled rejection
+    client.del.mockImplementationOnce(
+      () => new Promise((_, reject) => setTimeout(() => reject(new Error('socket closed')), 40)),
+    );
+    await expect(redis.delete('key')).rejects.toThrow('no answer within 20ms');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+
   it('logs client errors instead of crashing the process', async () => {
     const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
     await connected();
@@ -212,14 +228,20 @@ describe('RedisConnector', () => {
 
 describe('redisConfigFromEnv', () => {
   it('has defaults and reads the environment', () => {
-    expect(redisConfigFromEnv({})).toEqual({ enabled: false, url: 'redis://localhost:6379', keyPrefix: '' });
+    expect(redisConfigFromEnv({})).toEqual({
+      enabled: false,
+      url: 'redis://localhost:6379',
+      keyPrefix: '',
+      commandTimeoutMs: 5_000,
+    });
     expect(
       redisConfigFromEnv({
         REDIS_ENABLED: '1',
         REDIS_URL: 'rediss://user:pass@cache:6380/2',
         REDIS_KEY_PREFIX: 'app:',
+        REDIS_COMMAND_TIMEOUT_MS: '0',
       }),
-    ).toEqual({ enabled: true, url: 'rediss://user:pass@cache:6380/2', keyPrefix: 'app:' });
+    ).toEqual({ enabled: true, url: 'rediss://user:pass@cache:6380/2', keyPrefix: 'app:', commandTimeoutMs: 0 });
   });
 
   it('rejects URLs that are not redis:// or rediss://', () => {

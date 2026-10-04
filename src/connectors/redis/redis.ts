@@ -1,7 +1,7 @@
 import type { createClient } from 'redis';
 import { z } from 'zod';
 
-import { envBoolean, envString, parseEnv } from '#config';
+import { envBoolean, envNumber, envString, parseEnv } from '#config';
 import type { Connector } from '#core/lifecycle';
 import logger from '#core/logger';
 
@@ -13,6 +13,11 @@ export interface RedisConfig {
   url: string;
   /** Prepended to every key used through the `Cache` methods, e.g. `my-app:`. */
   keyPrefix: string;
+  /**
+   * How long a `Cache` command (`get`, `set`, `delete`) waits for the server's answer before failing; 0 or undefined
+   * means no limit. Commands sent through `raw` are not limited.
+   */
+  commandTimeoutMs?: number;
 }
 
 export type RedisClient = ReturnType<typeof createClient<{}, {}, {}, 3, {}>>;
@@ -77,7 +82,7 @@ export class RedisConnector implements Connector, Cache {
   }
 
   async get<T>(key: string): Promise<T | undefined> {
-    const value = await this.raw.get(this.key(key));
+    const value = await this.answered(this.raw.get(this.key(key)));
     if (value === null) return undefined;
     try {
       return JSON.parse(value.toString()) as T;
@@ -91,11 +96,27 @@ export class RedisConnector implements Connector, Cache {
     if (value === undefined) throw new TypeError('Redis: cannot cache undefined');
     // The server only takes whole milliseconds
     const options = ttlMs > 0 ? { expiration: { type: 'PX' as const, value: Math.ceil(ttlMs) } } : undefined;
-    await this.raw.set(this.key(key), JSON.stringify(value), options);
+    await this.answered(this.raw.set(this.key(key), JSON.stringify(value), options));
   }
 
   async delete(key: string): Promise<void> {
-    await this.raw.del(this.key(key));
+    await this.answered(this.raw.del(this.key(key)));
+  }
+
+  /**
+   * Fails a command the server does not answer in time: a server that stops answering without closing the connection
+   * must not hold requests either. The client's own command timeout only covers commands it has not sent yet.
+   */
+  private async answered<T>(command: Promise<T>): Promise<T> {
+    const timeoutMs = this.config.commandTimeoutMs;
+    if (!timeoutMs) return command;
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Redis: no answer within ${timeoutMs}ms`)), timeoutMs);
+    });
+    // The command may still fail later, when nobody is waiting for it any more
+    command.catch(() => undefined);
+    return Promise.race([command, timeout]).finally(() => clearTimeout(timer));
   }
 
   private key(key: string): string {
@@ -110,11 +131,13 @@ const redisEnv = z
       z.string().regex(/^rediss?:\/\//, 'must start with redis:// or rediss://'),
     ),
     REDIS_KEY_PREFIX: z.string().default(''),
+    REDIS_COMMAND_TIMEOUT_MS: envNumber(5_000),
   })
   .transform((env): RedisConfig => ({
     enabled: env.REDIS_ENABLED,
     url: env.REDIS_URL,
     keyPrefix: env.REDIS_KEY_PREFIX,
+    commandTimeoutMs: env.REDIS_COMMAND_TIMEOUT_MS,
   }));
 
 /** Reads the `REDIS_*` environment variables. */
