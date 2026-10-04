@@ -163,7 +163,9 @@ a load balancer or reverse proxy ends TLS in front of the app.
   flat JSON object named like the variables, see `config.example.json`. It is read from the working directory, or from
   the path in `CONFIG_FILE`, and copied into the environment before validation. A variable set in both the file and the
   environment (or `.env`) with different values stops the app, so neither silently wins: keep each variable in one
-  place. `npm run dev` sets `NODE_ENV` itself, so leave it out of a file used for development. Never commit the file.
+  place. That includes what starts the app: `npm run dev` sets `NODE_ENV`, and a process manager or container image may
+  set `NODE_ENV` and `LOG_OUTPUT`, so the example leaves both out; add them to the file only where nothing else sets
+  them. Never commit the file.
 
 ## Optional Connectors
 
