@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { failStartup } from './core/fail-startup.js';
+import { failStartup } from '#core/fail-startup';
 
 /**
  * Configuration comes from environment variables only (Twelve-Factor), validated with zod when the app starts.
