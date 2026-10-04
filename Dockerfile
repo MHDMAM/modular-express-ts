@@ -27,5 +27,8 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies --chown=nonroot:nonroot /app/logs ./logs
 COPY --from=build /app/dist ./dist
 EXPOSE 3000
+# Unhealthy when the health endpoint stops answering over plain HTTP; with SSL_ENABLED, replace it or pass --no-healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --start-interval=2s --retries=3 \
+  CMD ["/nodejs/bin/node", "-e", "fetch(`http://localhost:${process.env.PORT || 3000}${process.env.API_BASE_PATH || '/api/v1'}/health`).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 # The image's entrypoint is node
 CMD ["dist/server.js"]

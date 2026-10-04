@@ -233,10 +233,11 @@ complete them for your infrastructure.
   Node.js without a shell or npm, running as an unprivileged user with `NODE_ENV=production` and `LOG_OUTPUT=stdout`.
   Pass the settings when starting it, e.g. `docker run -p 3000:3000 --env-file .env my-app`. To keep log files, set
   `LOG_OUTPUT=file` and mount a volume on `/app/logs`. `.dockerignore` lets only the files the build needs reach Docker,
-  so `.env` and other local files are never in the image. `docker stop` shuts the app down gracefully. There is no shell
-  to open in the container; to debug, build from the `:debug-nonroot` tag of the base image, which has one. For HTTPS
-  from the container, mount the key and certificate read-only, e.g. `-v /etc/ssl/my-app:/app/ssl_cert:ro` (readable by
-  uid 65532), and set `SSL_ENABLED=true`.
+  so `.env` and other local files are never in the image. `docker stop` shuts the app down gracefully. The image's
+  `HEALTHCHECK` calls the health endpoint over plain HTTP on `PORT` and `API_BASE_PATH`; replace it when the container
+  serves HTTPS. There is no shell to open in the container; to debug, build from the `:debug-nonroot` tag of the base
+  image, which has one. For HTTPS from the container, mount the key and certificate read-only, e.g.
+  `-v /etc/ssl/my-app:/app/ssl_cert:ro` (readable by uid 65532), and set `SSL_ENABLED=true`.
 - **pm2** (`ecosystem.config.cjs`), for a Linux or Windows host: after `npm ci && npm run build`, start the app with
   `pm2 start ecosystem.config.cjs`. It runs `dist/server.js` with `NODE_ENV=production` and reads `.env` from the
   project folder when there is one. The app writes its own daily log files to `LOG_DIR`, so pm2's log files only hold
