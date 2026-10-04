@@ -1,39 +1,37 @@
-import { spawnSync } from 'node:child_process';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { readManifest, scaffold, type Edit } from '../scaffold/scaffold.js';
+import { copyTemplate, removeTemplateCopies, root } from './support/template-copy.js';
 
-const root = join(import.meta.dirname, '..');
 const manifest = readManifest(root);
 const ids = manifest.features.map((feature) => feature.id);
 const connectors = ['hazelcast', 'kafka', 'mssql', 'redis'];
 
-/** Every subset of the features. */
-const subsets = Array.from({ length: 2 ** ids.length }, (_, mask) => ids.filter((_, i) => mask & (1 << i)));
-
-let template: string;
-const dirs: string[] = [];
-
-/** A fresh copy of the template's files (tracked and new, never ignored or excluded ones). */
-function copyTemplate(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'scaffold-'));
-  dirs.push(dir);
-  cpSync(template, dir, { recursive: true });
-  return dir;
+/**
+ * The feature selections to try. Features sharing a `whenNoneKept` rule form a group; every subset of each group is
+ * tried, once with all the other features kept and once with all of them removed. Trying every subset of all features
+ * would double the run with each new feature, and features of different groups only meet in the files they both edit.
+ */
+function selections(): string[][] {
+  let groups = ids.map((id) => [id]);
+  for (const rule of manifest.whenNoneKept) {
+    const joined = groups.filter((group) => group.some((id) => rule.features.includes(id)));
+    groups = [...groups.filter((group) => !joined.includes(group)), joined.flat()];
+  }
+  const found = new Map<string, string[]>();
+  for (const group of groups) {
+    const others = ids.filter((id) => !group.includes(id));
+    for (let mask = 0; mask < 2 ** group.length; mask++) {
+      const subset = group.filter((_, i) => mask & (1 << i));
+      for (const rest of [[], others]) {
+        const keep = ids.filter((id) => subset.includes(id) || rest.includes(id));
+        found.set(keep.join(), keep);
+      }
+    }
+  }
+  return [...found.values()];
 }
 
 function listFiles(dir: string, base = dir): string[] {
@@ -44,7 +42,14 @@ function listFiles(dir: string, base = dir): string[] {
   });
 }
 
-const read = (dir: string, file: string) => readFileSync(join(dir, file), 'utf8');
+const texts = new Map<string, string>();
+
+/** A file's text, read from disk once per test: the checks look at the same files many times. */
+function read(dir: string, file: string): string {
+  const path = join(dir, file);
+  if (!texts.has(path)) texts.set(path, readFileSync(path, 'utf8'));
+  return texts.get(path)!;
+}
 
 /** The text an edit removes, as it appears in the template. */
 function editedText(edit: Edit): string {
@@ -57,22 +62,11 @@ function editedText(edit: Edit): string {
   );
 }
 
-beforeAll(() => {
-  template = mkdtempSync(join(tmpdir(), 'scaffold-template-'));
-  const files = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
-    cwd: root,
-    encoding: 'utf8',
-  });
-  for (const file of files.stdout.split('\0').filter((f) => f && existsSync(join(root, f)))) {
-    mkdirSync(dirname(join(template, file)), { recursive: true });
-    cpSync(join(root, file), join(template, file));
-  }
-});
-
-afterAll(() => [template, ...dirs].forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+afterEach(() => texts.clear());
+afterAll(removeTemplateCopies);
 
 describe('scaffold', () => {
-  it.each(subsets.map((keep) => [keep.join(', ') || 'none', keep]))('keeps [%s]', (_, keep) => {
+  it.each(selections().map((keep) => [keep.join(', ') || 'none', keep]))('keeps [%s]', (_, keep) => {
     const dir = copyTemplate();
     scaffold(dir, { name: '@acme/my-app', features: keep });
 
@@ -153,8 +147,11 @@ describe('scaffold', () => {
     expect(pkg).toMatchObject({ name: '@acme/my-app', version: '0.1.0', private: true, license: 'UNLICENSED' });
     expect(pkg.author).toBeUndefined();
     expect(JSON.parse(read(dir, 'package-lock.json')).name).toBe('@acme/my-app');
-    for (const file of ['LICENSE', 'scaffold', 'test/scaffold.test.ts'])
-      expect(existsSync(join(dir, file)), file).toBe(false);
+    // Nothing of the template's own scaffolding is left
+    for (const file of manifest.project.removeFiles) expect(existsSync(join(dir, file)), file).toBe(false);
+    for (const file of files.filter((f) => f !== 'package-lock.json')) {
+      expect(read(dir, file), file).not.toMatch(/scaffold/i);
+    }
 
     // The template's name survives only in the README credit line (and the lock file's dependency tree)
     for (const file of files.filter((f) => f !== 'README.md' && f !== 'package-lock.json')) {
@@ -175,25 +172,4 @@ describe('scaffold', () => {
   it('rejects unknown features', () => {
     expect(() => scaffold(copyTemplate(), { name: 'app', features: ['mongo'] })).toThrow('Unknown feature(s): mongo');
   });
-});
-
-// Generated projects must still typecheck and be formatted, with every feature alone, none and all
-describe.concurrent('generated projects', () => {
-  const combinations = [[], ...ids.map((id) => [id]), ids];
-  it.each(combinations.map((keep) => [keep.join(', ') || 'none', keep]))(
-    'typecheck and are formatted [%s]',
-    (_, keep) => {
-      const dir = copyTemplate();
-      scaffold(dir, { name: 'my-app', features: keep });
-      symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'junction');
-      for (const args of [
-        ['node_modules/typescript/bin/tsc', '--noEmit'],
-        ['node_modules/prettier/bin/prettier.cjs', '--check', '.', '--ignore-path', '.gitignore'],
-      ]) {
-        const result = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8' });
-        expect(result.status, `${args[0]}\n${result.stdout}\n${result.stderr}`).toBe(0);
-      }
-    },
-    60_000,
-  );
 });

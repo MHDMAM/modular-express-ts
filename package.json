@@ -46,6 +46,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:scaffold": "vitest run --config vitest.scaffold.config.ts",
     "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .git/info/exclude"
   },
   "dependencies": {

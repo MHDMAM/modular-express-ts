@@ -147,7 +147,21 @@
     }
   ],
   "project": {
-    "removeFiles": ["LICENSE", "scaffold", "test/scaffold.test.ts"],
-    "removeReadmeSections": ["Creating a Project", "License"]
+    "removeFiles": [
+      "LICENSE",
+      "scaffold",
+      "test/scaffold.test.ts",
+      "test/scaffold-projects.check.ts",
+      "test/support/template-copy.ts",
+      "vitest.scaffold.config.ts"
+    ],
+    "removeReadmeSections": ["Creating a Project", "License"],
+    "edits": [
+      {
+        "file": "package.json",
+        "removeLine": "    \"test:scaffold\": \"vitest run --config vitest.scaffold.config.ts\","
+      },
+      { "file": ".github/workflows/ci.yml", "removeLine": "      - run: npm run test:scaffold" }
+    ]
   }
 }

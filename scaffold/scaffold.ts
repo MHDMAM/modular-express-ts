@@ -45,7 +45,8 @@ export interface Manifest {
   features: Feature[];
   /** Files and edits applied only when none of `features` is kept (e.g. code shared by two connectors). */
   whenNoneKept: { features: string[]; files?: string[]; edits?: Edit[] }[];
-  project: { removeFiles: string[]; removeReadmeSections: string[] };
+  /** What belongs to the template itself and is removed from every project. */
+  project: { removeFiles: string[]; removeReadmeSections: string[]; edits: Edit[] };
 }
 
 export const MANIFEST_VERSION = 1;
@@ -182,6 +183,8 @@ export function personalize(root: string, manifest: Manifest, name: string): voi
   const { name: templateName, url } = manifest.template;
   // A scoped name ("@acme/app") is not valid everywhere the name is used (e.g. APP_NAME, Kafka client ids)
   const shortName = name.replace(/^@[^/]+\//, '');
+
+  applyEdits(root, manifest.project.edits);
 
   const {
     name: _n,
