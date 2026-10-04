@@ -98,6 +98,30 @@
         { "file": "README.md", "removeLine": "    redis/" },
         { "file": "README.md", "removeBullet": "- **Redis**" }
       ]
+    },
+    {
+      "id": "config-file",
+      "label": "config.json",
+      "hint": "settings from a config.json file on hosts, next to environment variables and .env",
+      "default": false,
+      "files": [
+        "src/core/config-file.ts",
+        "src/core/config-file-load.ts",
+        "src/core/config-file.test.ts",
+        "config.example.json"
+      ],
+      "edits": [
+        {
+          "file": "src/server.ts",
+          "removeBlock": "// Must stay the first import: copies config.json into the environment before anything reads it"
+        },
+        { "file": ".gitignore", "removeBlock": "# Local configuration file (see config.example.json)" },
+        {
+          "file": "README.md",
+          "removeLine": "    config-file.ts       # optional config.json, copied into the environment at startup"
+        },
+        { "file": "README.md", "removeBullet": "- **`config.json`**" }
+      ]
     }
   ],
   "whenNoneKept": [

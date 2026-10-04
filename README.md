@@ -13,9 +13,9 @@ node scaffold/scaffold.ts --name my-app --features http,redis   # or --features 
 npm install
 ```
 
-Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis` (see `scaffold/features.json`). The others are removed with
-their code, tests, dependencies, environment variables and documentation; the script also renames the project and then
-removes itself.
+Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file` (see `scaffold/features.json`). The others are
+removed with their code, tests, dependencies, environment variables and documentation; the script also renames the
+project and then removes itself.
 
 ## Quick Start
 

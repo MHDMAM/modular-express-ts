@@ -134,6 +134,15 @@ describe('scaffold', () => {
     for (const file of ['package.json', 'README.md', '.github/workflows/ci.yml'])
       expect(read(dir, file).includes('integration'), `${file} mentions integration tests`).toBe(integration);
 
+    // Without the config file feature, nothing mentions it
+    if (!keep.includes('config-file')) {
+      for (const file of files.filter((f) => f !== 'package-lock.json')) {
+        expect(read(dir, file), file).not.toMatch(/\bconfig\.json|config-file|CONFIG_FILE/);
+      }
+    }
+    // The entry point starts with the config file import, or with its first real import
+    expect(read(dir, 'src/server.ts').startsWith('import logger')).toBe(!keep.includes('config-file'));
+
     const readme = read(dir, 'README.md');
     expect(readme.startsWith('# @acme/my-app\n\nCreated with [modular-express-ts]')).toBe(true);
     expect(readme.includes('## Optional Connectors')).toBe(registered.length > 0);
