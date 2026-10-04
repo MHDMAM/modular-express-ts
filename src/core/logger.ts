@@ -1,7 +1,9 @@
+import { accessSync, constants, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pino from 'pino';
 
 import config from '#config';
+import { failStartup } from '#core/fail-startup';
 import { DailyLogFile, logClock } from '#core/log-file';
 import { getRequestContext } from '#core/request-context';
 
@@ -21,6 +23,13 @@ export function tapLogs(listener: (line: string) => void): () => void {
 
 const streams: pino.StreamEntry[] = [{ level, stream: { write: (line) => taps.forEach((tap) => tap(line)) } }];
 if (output !== 'stdout') {
+  // Checked now, so the app does not start without its log files; later failures are reported on stderr instead
+  try {
+    mkdirSync(dir, { recursive: true });
+    accessSync(dir, constants.W_OK);
+  } catch (error) {
+    failStartup(`Cannot write logs to LOG_DIR (${dir}): ${(error as Error).message}`);
+  }
   // One file per day with everything, and one with the errors only
   streams.push({ level, stream: new DailyLogFile(dir, 'app', dateOf, retentionDays) });
   streams.push({ level: 'error', stream: new DailyLogFile(dir, 'error', dateOf, retentionDays) });
