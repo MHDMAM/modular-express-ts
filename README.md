@@ -154,6 +154,11 @@ variables (`<NAME>_*`) next to its code in `src/connectors/<name>/`, so removing
 Booleans accept `true`/`false`, `1`/`0` or `yes`/`no`; lists are comma-separated; unset or empty variables use the
 default.
 
+HTTPS: with `SSL_ENABLED=true` the app serves HTTPS itself, reading a PEM private key and certificate from
+`SSL_KEY_PATH` and `SSL_CERT_PATH` when it starts (relative paths resolve against the working directory), so restart it
+after renewing a certificate. The files are deployed with the host or the container, never committed. Leave it off where
+a load balancer or reverse proxy ends TLS in front of the app.
+
 - **`config.json`** (optional, for hosts where a file is easier than environment variables, e.g. pm2 on a server): a
   flat JSON object named like the variables, see `config.example.json`. It is read from the working directory, or from
   the path in `CONFIG_FILE`, and copied into the environment before validation. A variable set in both the file and the
@@ -227,19 +232,24 @@ complete them for your infrastructure.
   Pass the settings when starting it, e.g. `docker run -p 3000:3000 --env-file .env my-app`. To keep log files, set
   `LOG_OUTPUT=file` and mount a volume on `/app/logs`. `.dockerignore` lets only the files the build needs reach Docker,
   so `.env` and other local files are never in the image. `docker stop` shuts the app down gracefully. There is no shell
-  to open in the container; to debug, build from the `:debug-nonroot` tag of the base image, which has one.
+  to open in the container; to debug, build from the `:debug-nonroot` tag of the base image, which has one. For HTTPS
+  from the container, mount the key and certificate read-only, e.g. `-v /etc/ssl/my-app:/app/ssl_cert:ro` (readable by
+  uid 65532), and set `SSL_ENABLED=true`.
 - **pm2** (`ecosystem.config.cjs`), for a Linux or Windows host: after `npm ci && npm run build`, start the app with
   `pm2 start ecosystem.config.cjs`. It runs `dist/server.js` with `NODE_ENV=production` and reads `.env` from the
   project folder when there is one. The app writes its own daily log files to `LOG_DIR`, so pm2's log files only hold
   what is printed before the logger starts (e.g. an invalid setting). `pm2 stop` and `pm2 reload` shut the app down
   gracefully, on Windows too (pm2 sends a message there instead of a signal). Set `instances` and `exec_mode: 'cluster'`
-  to use several processes.
+  to use several processes. For HTTPS, set `SSL_KEY_PATH` and `SSL_CERT_PATH` to the absolute paths of the host's
+  certificate files, readable by the user running pm2.
 - **AWS ECS** (`ecs/task-definition.example.json`): a sample Fargate task definition for an image of this app. Its
   health check calls `/nodejs/bin/node`, where the distroless image has Node.js; use `node` with another base image. The
   settings go under `environment`, named like the variables in `.env.example`. Passwords and other secrets go under
   `secrets` as `{ "name": "<VARIABLE>", "valueFrom": "<Secrets Manager or Parameter Store ARN>" }`, never under
   `environment`. Logs go to stdout and from there to CloudWatch (`awslogs`). Replace the `<...>` placeholders, then
-  register it with `aws ecs register-task-definition --cli-input-json file://ecs/task-definition.example.json`.
+  register it with `aws ecs register-task-definition --cli-input-json file://ecs/task-definition.example.json`. HTTPS
+  normally ends at the load balancer (a certificate on the ALB), with `SSL_ENABLED` left off in the task; the app reads
+  certificates from files only, so serving HTTPS from the task itself needs them on a mounted volume.
 
 ## Maintenance
 
