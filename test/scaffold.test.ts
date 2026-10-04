@@ -8,7 +8,7 @@ import { copyTemplate, removeTemplateCopies, root } from './support/template-cop
 const manifest = readManifest(root);
 const ids = manifest.features.map((feature) => feature.id);
 const connectors = ['hazelcast', 'kafka', 'mssql', 'redis'];
-const deployment = ['docker', 'pm2'];
+const deployment = ['docker', 'pm2', 'ecs'];
 
 /**
  * The feature selections to try. Features sharing a `whenNoneKept` rule form a group; every subset of each group is

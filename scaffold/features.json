@@ -147,6 +147,14 @@
           "removeBlock": "// pm2 asks for a shutdown with a message instead of a signal (shutdown_with_message, needed on Windows)"
         }
       ]
+    },
+    {
+      "id": "ecs",
+      "label": "AWS ECS",
+      "hint": "sample Fargate task definition: settings as environment variables, secrets by reference",
+      "default": false,
+      "files": ["ecs"],
+      "edits": [{ "file": "README.md", "removeBullet": "- **AWS ECS**" }]
     }
   ],
   "whenNoneKept": [
@@ -171,7 +179,7 @@
       "edits": [{ "file": "README.md", "removeSection": "Optional Connectors" }]
     },
     {
-      "features": ["docker", "pm2"],
+      "features": ["docker", "pm2", "ecs"],
       "edits": [{ "file": "README.md", "removeSection": "Deployment" }]
     }
   ],

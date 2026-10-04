@@ -13,9 +13,9 @@ node scaffold/scaffold.ts --name my-app --features http,redis   # or --features 
 npm install
 ```
 
-Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file`, `docker`, `pm2` (see `scaffold/features.json`).
-The others are removed with their code, tests, dependencies, environment variables and documentation; the script also
-renames the project and then removes itself.
+Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file`, `docker`, `pm2`, `ecs` (see
+`scaffold/features.json`). The others are removed with their code, tests, dependencies, environment variables and
+documentation; the script also renames the project and then removes itself.
 
 ## Quick Start
 
@@ -232,6 +232,11 @@ complete them for your infrastructure.
   what is printed before the logger starts (e.g. an invalid setting). `pm2 stop` and `pm2 reload` shut the app down
   gracefully, on Windows too (pm2 sends a message there instead of a signal). Set `instances` and `exec_mode: 'cluster'`
   to use several processes.
+- **AWS ECS** (`ecs/task-definition.example.json`): a sample Fargate task definition for an image of this app. The
+  settings go under `environment`, named like the variables in `.env.example`. Passwords and other secrets go under
+  `secrets` as `{ "name": "<VARIABLE>", "valueFrom": "<Secrets Manager or Parameter Store ARN>" }`, never under
+  `environment`. Logs go to stdout and from there to CloudWatch (`awslogs`). Replace the `<...>` placeholders, then
+  register it with `aws ecs register-task-definition --cli-input-json file://ecs/task-definition.example.json`.
 
 ## Maintenance
 

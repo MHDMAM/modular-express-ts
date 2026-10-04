@@ -1,0 +1,45 @@
+{
+  "family": "modular-express-ts",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<account-id>:role/<task-role>",
+  "containerDefinitions": [
+    {
+      "name": "modular-express-ts",
+      "image": "<account-id>.dkr.ecr.<region>.amazonaws.com/modular-express-ts:<tag>",
+      "essential": true,
+      "portMappings": [{ "containerPort": 3000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "3000" },
+        { "name": "LOG_OUTPUT", "value": "stdout" },
+        { "name": "LOG_LEVEL", "value": "info" }
+      ],
+      "secrets": [],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/v1/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 40
+      },
+      "stopTimeout": 15,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/modular-express-ts",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "app"
+        }
+      }
+    }
+  ]
+}
