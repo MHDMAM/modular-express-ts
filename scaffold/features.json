@@ -133,6 +133,20 @@
         { "file": "README.md", "removeBullet": "- **Docker**" },
         { "file": ".github/workflows/ci.yml", "removeLine": "      - run: docker build -t app ." }
       ]
+    },
+    {
+      "id": "pm2",
+      "label": "pm2",
+      "hint": "ecosystem file to run the compiled app under pm2 on a Linux or Windows host",
+      "default": false,
+      "files": ["ecosystem.config.cjs"],
+      "edits": [
+        { "file": "README.md", "removeBullet": "- **pm2**" },
+        {
+          "file": "src/server.ts",
+          "removeBlock": "// pm2 asks for a shutdown with a message instead of a signal (shutdown_with_message, needed on Windows)"
+        }
+      ]
     }
   ],
   "whenNoneKept": [
@@ -157,7 +171,7 @@
       "edits": [{ "file": "README.md", "removeSection": "Optional Connectors" }]
     },
     {
-      "features": ["docker"],
+      "features": ["docker", "pm2"],
       "edits": [{ "file": "README.md", "removeSection": "Deployment" }]
     }
   ],

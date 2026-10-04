@@ -13,8 +13,8 @@ node scaffold/scaffold.ts --name my-app --features http,redis   # or --features 
 npm install
 ```
 
-Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file`, `docker` (see `scaffold/features.json`). The
-others are removed with their code, tests, dependencies, environment variables and documentation; the script also
+Features: `http`, `mssql`, `kafka`, `hazelcast`, `redis`, `config-file`, `docker`, `pm2` (see `scaffold/features.json`).
+The others are removed with their code, tests, dependencies, environment variables and documentation; the script also
 renames the project and then removes itself.
 
 ## Quick Start
@@ -226,6 +226,12 @@ complete them for your infrastructure.
   `LOG_OUTPUT=stdout`. Pass the settings when starting it, e.g. `docker run -p 3000:3000 --env-file .env my-app`.
   `.dockerignore` lets only the files the build needs reach Docker, so `.env` and other local files are never in the
   image. `docker stop` shuts the app down gracefully.
+- **pm2** (`ecosystem.config.cjs`), for a Linux or Windows host: after `npm ci && npm run build`, start the app with
+  `pm2 start ecosystem.config.cjs`. It runs `dist/server.js` with `NODE_ENV=production` and reads `.env` from the
+  project folder when there is one. The app writes its own daily log files to `LOG_DIR`, so pm2's log files only hold
+  what is printed before the logger starts (e.g. an invalid setting). `pm2 stop` and `pm2 reload` shut the app down
+  gracefully, on Windows too (pm2 sends a message there instead of a signal). Set `instances` and `exec_mode: 'cluster'`
+  to use several processes.
 
 ## Maintenance
 

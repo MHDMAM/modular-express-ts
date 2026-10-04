@@ -74,3 +74,8 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   shutdown('SIGTERM');
 });
+
+// pm2 asks for a shutdown with a message instead of a signal (shutdown_with_message, needed on Windows)
+process.on('message', (message) => {
+  if (message === 'shutdown') shutdown('shutdown message');
+});
