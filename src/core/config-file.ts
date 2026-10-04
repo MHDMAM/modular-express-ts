@@ -47,7 +47,13 @@ export function applyConfigFile(env: Env = process.env, cwd = process.cwd()): vo
     return;
   }
 
-  const values = parseConfigFile(readFileSync(path, 'utf8'), path);
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    throw new ConfigFileError(`Cannot read ${path}: ${(error as Error).message}`);
+  }
+  const values = parseConfigFile(text, path);
   // Values are not shown: they may be secrets
   const conflicts = Object.keys(values).filter((name) => env[name] && env[name] !== values[name]);
   if (conflicts.length) {

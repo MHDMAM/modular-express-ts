@@ -69,6 +69,11 @@ describe('applyConfigFile', () => {
     );
   });
 
+  it('fails with its own error on a file that cannot be read', () => {
+    // A folder where the file should be
+    expect(() => applyConfigFile({ CONFIG_FILE: '.' }, workingDir())).toThrow(ConfigFileError);
+  });
+
   it('accepts a variable set to the same value in both, and fills in empty ones', () => {
     const env: Record<string, string | undefined> = { PORT: '8080', LOG_DIR: '' };
 
