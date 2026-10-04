@@ -131,7 +131,7 @@
       "files": ["Dockerfile", ".dockerignore"],
       "edits": [
         { "file": "README.md", "removeBullet": "- **Docker**" },
-        { "file": ".github/workflows/ci.yml", "removeLine": "      - run: docker build -t app ." }
+        { "file": ".github/workflows/ci.yml", "removeBlock": "  docker:" }
       ]
     },
     {
