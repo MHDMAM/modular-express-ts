@@ -44,6 +44,8 @@ export class DailyLogFile {
   private day = '';
   /** The minute `day` was last computed in: the date is only looked up again when the minute changes. */
   private minute = -1;
+  /** A write failed and was reported; set back once a line is written. */
+  private failing = false;
 
   constructor(
     private readonly dir: string,
@@ -54,15 +56,27 @@ export class DailyLogFile {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /**
+   * Never throws: a log file that cannot be written (folder gone, no permission, disk full) must not fail whatever was
+   * being logged. The failure is reported once on stderr, and opening the file is tried again every minute.
+   */
   write(line: string): void {
     const ms = this.now();
     const minute = Math.floor(ms / 60_000);
-    if (minute !== this.minute) {
-      this.minute = minute;
-      const day = this.dateOf(ms);
-      if (day !== this.day) this.open(day, ms);
+    try {
+      if (minute !== this.minute) {
+        this.minute = minute;
+        const day = this.dateOf(ms);
+        if (day !== this.day) this.open(day, ms);
+      }
+      if (!this.file) return;
+      this.file.write(line);
+      this.failing = false;
+    } catch (error) {
+      if (this.failing) return;
+      this.failing = true;
+      process.stderr.write(`Cannot write the log file in ${this.dir}: ${(error as Error).message}\n`);
     }
-    this.file!.write(line);
   }
 
   end(): void {
@@ -74,6 +88,9 @@ export class DailyLogFile {
 
   private open(day: string, ms: number): void {
     this.file?.end();
+    // Until the new file is open there is none: a failure below is tried again
+    this.file = undefined;
+    this.day = '';
     mkdirSync(this.dir, { recursive: true });
     this.file = pino.destination({ dest: join(this.dir, `${this.name}-${day}.log`), sync: true, append: true });
     this.day = day;

@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DailyLogFile, logClock } from './log-file.js';
 
@@ -126,5 +126,26 @@ describe('DailyLogFile', () => {
     log.end();
 
     expect(readdirSync(join(dir, 'logs'))).toContain('app-2020-01-01.log');
+  });
+
+  it('does not throw when the file cannot be opened: says so once on stderr and tries again a minute later', () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    // A file where the folder should be
+    writeFileSync(join(dir, 'logs'), '');
+    const log = file();
+
+    expect(() => log.write('lost\n')).not.toThrow();
+    now += 10_000;
+    expect(() => log.write('lost too\n')).not.toThrow();
+    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(stderr.mock.calls[0][0]).toMatch(/^Cannot write the log file in .*logs: /);
+
+    rmSync(join(dir, 'logs'));
+    now += 60_000;
+    log.write('written\n');
+    log.end();
+    stderr.mockRestore();
+
+    expect(read('app-2026-10-05.log')).toBe('written\n');
   });
 });
