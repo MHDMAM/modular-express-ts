@@ -19,6 +19,8 @@ class FakeMap {
 
 const fake = {
   clientConfig: undefined as any,
+  /** Awaited before the client is returned, so a test can close the connector while the client starts. */
+  starting: undefined as undefined | Promise<void>,
   maps: new Map<string, FakeMap>(),
   getMap: vi.fn(async (name: string) => {
     if (!fake.maps.has(name)) fake.maps.set(name, new FakeMap());
@@ -42,6 +44,9 @@ vi.mock(
       Client: {
         newHazelcastClient: vi.fn(async (clientConfig: any) => {
           fake.clientConfig = clientConfig;
+          await fake.starting;
+          // A client that blocks until connected has emitted CONNECTED when it is returned
+          if (!clientConfig.connectionStrategy?.asyncStart) fake.emit('CONNECTED' as LifecycleState);
           return { getMap: fake.getMap, shutdown: fake.shutdown };
         }),
       },
@@ -58,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fake.maps.clear();
   fake.clientConfig = undefined;
+  fake.starting = undefined;
 });
 
 async function connected(config: HazelcastConfig = baseConfig) {
@@ -109,11 +115,35 @@ describe('HazelcastConnector', () => {
     await hazelcast.set('user:2', { name: 'Bob' });
 
     expect(await hazelcast.get('user:1')).toEqual({ name: 'Ada' });
+    expect(fake.maps.get('cache')!.entries.get('user:1')).toBe('{"name":"Ada"}');
     expect(fake.maps.get('cache')!.ttls.get('user:1')).toBe(60_000);
     expect(fake.maps.get('cache')!.ttls.get('user:2')).toBe(0);
 
     await hazelcast.delete('user:1');
     expect(await hazelcast.get('user:1')).toBeUndefined();
+  });
+
+  it('stores values as JSON text, so arrays and null survive', async () => {
+    const hazelcast = await connected();
+
+    await hazelcast.set('list', [1, 'two', null]);
+    await hazelcast.set('nothing', null);
+
+    expect(await hazelcast.get('list')).toEqual([1, 'two', null]);
+    expect(await hazelcast.get('nothing')).toBeNull();
+    await expect(hazelcast.set('key', undefined)).rejects.toThrow('cannot cache undefined');
+  });
+
+  it('reports a value that is not JSON without showing it', async () => {
+    const hazelcast = await connected();
+    const map = await hazelcast.map('cache');
+    await map.set('text', 'secret-token');
+    await map.set('object', { native: true });
+
+    const reading = hazelcast.get('text');
+    await expect(reading).rejects.toThrow('the value of "text" is not JSON');
+    await expect(reading).rejects.not.toThrow('secret-token');
+    await expect(hazelcast.get('object')).rejects.toThrow('the value of "object" is not JSON');
   });
 
   it('returns undefined for missing keys (the client returns null)', async () => {
@@ -131,6 +161,93 @@ describe('HazelcastConnector', () => {
 
     expect(sessions).not.toBe(carts);
     expect(fake.getMap.mock.calls.map(([name]) => name)).toEqual(['sessions', 'carts']);
+  });
+
+  it("routes the client's own logs through the application logger, unless a logger is configured", async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    await connected();
+
+    fake.clientConfig.customLogger.warn('ConnectionManager', 'connection lost');
+    fake.clientConfig.customLogger.log(2, 'Heartbeat', 'no heartbeat', { member: 'a' });
+
+    expect(warn).toHaveBeenCalledWith({ info: 'Hazelcast client: connection lost', source: 'ConnectionManager' });
+    expect(warn).toHaveBeenCalledWith({
+      info: 'Hazelcast client: no heartbeat',
+      source: 'Heartbeat',
+      furtherInfo: { member: 'a' },
+    });
+    warn.mockRestore();
+
+    const customLogger = {} as HazelcastConfig['client']['customLogger'];
+    await connected({ ...baseConfig, client: { ...baseConfig.client, customLogger } });
+    expect(fake.clientConfig.customLogger).toBe(customLogger);
+  });
+
+  it('waits for the first connection of a client that starts asynchronously', async () => {
+    const hazelcast = new HazelcastConnector({
+      ...baseConfig,
+      client: { ...baseConfig.client, connectionStrategy: { asyncStart: true } },
+    });
+    let settled = false;
+
+    const initializing = hazelcast.init().then(() => (settled = true));
+    await vi.waitFor(() => expect(fake.clientConfig).toBeDefined());
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(hazelcast.isReady()).toBe(false);
+
+    fake.emit('CONNECTED' as LifecycleState);
+    await initializing;
+    expect(hazelcast.isReady()).toBe(true);
+  });
+
+  it('fails an init that is closed while waiting for the cluster, and shuts the client down', async () => {
+    const hazelcast = new HazelcastConnector({
+      ...baseConfig,
+      client: { ...baseConfig.client, connectionStrategy: { asyncStart: true } },
+    });
+
+    const initializing = hazelcast.init();
+    const failed = expect(initializing).rejects.toThrow('closed during init');
+    await vi.waitFor(() => expect(fake.clientConfig).toBeDefined());
+    await new Promise((resolve) => setImmediate(resolve));
+    await hazelcast.close();
+
+    await failed;
+    expect(fake.shutdown).toHaveBeenCalledTimes(1);
+    expect(hazelcast.isReady()).toBe(false);
+  });
+
+  it('shuts down a client that finished starting after the connector was closed', async () => {
+    let started!: () => void;
+    fake.starting = new Promise((resolve) => (started = resolve));
+    const hazelcast = new HazelcastConnector(baseConfig);
+
+    const initializing = hazelcast.init();
+    const failed = expect(initializing).rejects.toThrow('closed during init');
+    await vi.waitFor(() => expect(fake.clientConfig).toBeDefined());
+    await hazelcast.close();
+    expect(fake.shutdown).not.toHaveBeenCalled();
+    started();
+
+    await failed;
+    expect(fake.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for a map again after it could not be fetched', async () => {
+    const hazelcast = await connected();
+    fake.getMap.mockRejectedValueOnce(new Error('No connection found to cluster'));
+
+    await expect(hazelcast.get('key')).rejects.toThrow('No connection found');
+    await hazelcast.set('key', 'value');
+
+    expect(await hazelcast.get('key')).toBe('value');
+  });
+
+  it('says so when it is disabled', async () => {
+    const hazelcast = new HazelcastConnector({ ...baseConfig, enabled: false });
+
+    await expect(hazelcast.get('key')).rejects.toThrow('disabled');
   });
 
   it('throws when used before init or after close', async () => {
@@ -175,7 +292,6 @@ describe('hazelcastConfigFromEnv', () => {
       HAZELCAST_CLUSTER_NAME: 'prod',
       HAZELCAST_MEMBERS: 'hz1:5701,hz2:5701',
       HAZELCAST_MAP_NAME: 'sessions',
-      HAZELCAST_CONNECT_TIMEOUT_MS: '5000',
     });
 
     expect(config).toMatchObject({
@@ -184,7 +300,8 @@ describe('hazelcastConfigFromEnv', () => {
       client: {
         clusterName: 'prod',
         network: { clusterMembers: ['hz1:5701', 'hz2:5701'] },
-        connectionStrategy: { connectionRetry: { clusterConnectTimeoutMillis: 5000 } },
+        // Starts in the background and never gives up: the connector waits for it and can stop it
+        connectionStrategy: { asyncStart: true, connectionRetry: { clusterConnectTimeoutMillis: -1 } },
       },
     });
   });

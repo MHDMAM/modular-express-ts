@@ -164,8 +164,10 @@ All are disabled by default.
   brokers do not take the message, and the brokers are checked every `KAFKA_HEALTH_CHECK_INTERVAL_MS` for the readiness
   check. Set `KAFKA_ADDRESS_FAMILY=v4` if the first connection to a `localhost` broker is slow (Docker on Windows).
 - **Hazelcast** (`#connectors/hazelcast/hazelcast`): set `HAZELCAST_ENABLED=true` and `HAZELCAST_MEMBERS`. Implements
-  `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME`, and `map(name)` returns any
-  distributed map. Other client options can be added in `hazelcastConfigFromEnv`.
+  `Cache` (`get`, `set` with a TTL in milliseconds, `delete`) over `HAZELCAST_MAP_NAME` with values stored as JSON text,
+  and `map(name)` returns any distributed map with the client's own serialization. Other client options can be added in
+  `hazelcastConfigFromEnv`. The client keeps reconnecting for as long as the cluster is away, and operations fail at
+  once meanwhile. Entries expire with a resolution of about a second.
 - **Redis** (`#connectors/redis/redis`, works with Valkey): set `REDIS_ENABLED=true` and `REDIS_URL`. Implements `Cache`
   with JSON values, a TTL in milliseconds and an optional `REDIS_KEY_PREFIX`; `redis.raw` is the node-redis client for
   other commands. Commands fail at once while the server is unreachable (no offline queue), so a cache that is down does
