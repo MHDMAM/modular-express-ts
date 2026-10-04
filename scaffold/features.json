@@ -66,8 +66,9 @@
       "label": "Hazelcast",
       "hint": "distributed maps and cache (hazelcast-client)",
       "default": false,
-      "files": ["src/connectors/hazelcast"],
+      "files": ["src/connectors/hazelcast", "test/integration/hazelcast.integration.ts"],
       "dependencies": ["hazelcast-client"],
+      "devDependencies": ["testcontainers"],
       "edits": [
         { "file": "src/connectors/index.ts", "removeLine": "import hazelcast from './hazelcast/hazelcast.js';" },
         {
@@ -102,7 +103,7 @@
   "whenNoneKept": [
     { "features": ["hazelcast", "redis"], "files": ["src/connectors/cache.ts"] },
     {
-      "features": ["mssql", "kafka", "redis"],
+      "features": ["mssql", "kafka", "hazelcast", "redis"],
       "files": ["test/integration", "vitest.integration.config.ts"],
       "edits": [
         {

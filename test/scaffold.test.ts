@@ -123,7 +123,7 @@ describe('scaffold', () => {
     expect(existsSync(join(dir, 'src/connectors/cache.ts'))).toBe(keep.includes('hazelcast') || keep.includes('redis'));
 
     // Without a connector that has tests against a real server, nothing of them is left
-    const tested = ['mssql', 'kafka', 'redis'];
+    const tested = ['mssql', 'kafka', 'hazelcast', 'redis'];
     const integration = tested.some((id) => keep.includes(id));
     for (const id of tested)
       expect(existsSync(join(dir, `test/integration/${id}.integration.ts`)), id).toBe(keep.includes(id));
