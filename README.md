@@ -52,6 +52,7 @@ src/
     errors.ts            # HttpException and status codes
     logger.ts            # pino, JSON lines with the request context
     log-file.ts          # daily log files and the log time zone
+    config-file.ts       # optional config.json, copied into the environment at startup
     health-check.ts      # periodic check used by connectors for readiness
     request-context.ts   # AsyncLocalStorage: requestId, traceId
     lifecycle.ts         # Connector interface, init/close, statuses, monitor
@@ -152,6 +153,12 @@ variables (`<NAME>_*`) next to its code in `src/connectors/<name>/`, so removing
 
 Booleans accept `true`/`false`, `1`/`0` or `yes`/`no`; lists are comma-separated; unset or empty variables use the
 default.
+
+- **`config.json`** (optional, for hosts where a file is easier than environment variables, e.g. pm2 on a server): a
+  flat JSON object named like the variables, see `config.example.json`. It is read from the working directory, or from
+  the path in `CONFIG_FILE`, and copied into the environment before validation. A variable set in both the file and the
+  environment (or `.env`) with different values stops the app, so neither silently wins: keep each variable in one
+  place. `npm run dev` sets `NODE_ENV` itself, so leave it out of a file used for development. Never commit the file.
 
 ## Optional Connectors
 

@@ -1,3 +1,6 @@
+// Must stay the first import: copies config.json into the environment before anything reads it
+import './core/config-file-load.js';
+
 import logger from '#core/logger';
 
 import App from './app.js';

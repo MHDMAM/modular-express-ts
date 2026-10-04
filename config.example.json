@@ -1,0 +1,7 @@
+{
+  "NODE_ENV": "production",
+  "PORT": 3000,
+  "LOG_DIR": "logs",
+  "LOG_OUTPUT": "file",
+  "LOG_RETENTION_DAYS": 30
+}
